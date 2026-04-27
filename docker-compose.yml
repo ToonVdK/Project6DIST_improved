@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  naming-server:
+    build:
+      context: ./naming-server
+    container_name: naming-server
+    ports:
+      - "8080:8080"
+    networks:
+      - system-y-network
+
+  node-1:
+    build:
+      context: ./node
+    container_name: node-1
+    depends_on:
+      - naming-server
+    networks:
+      - system-y-network
+
+  node-2:
+    build:
+      context: ./node
+    container_name: node-2
+    depends_on:
+      - naming-server
+    networks:
+      - system-y-network
+
+  node-3:
+    build:
+      context: ./node
+    container_name: node-3
+    depends_on:
+      - naming-server
+    networks:
+      - system-y-network
+
+networks:
+  system-y-network:
+    driver: bridge

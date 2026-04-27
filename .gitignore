@@ -42,3 +42,4 @@ Thumbs.db
 
 # Project specific local files
 nameserver_map.json
+deploy.ps1

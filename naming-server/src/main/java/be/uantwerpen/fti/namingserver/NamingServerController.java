@@ -13,9 +13,9 @@ public class NamingServerController {
         this.namingServerService = namingServerService;
     }
 
-    @GetMapping("/files/{filename}")
-    public String getFileLocation(@PathVariable String filename) {
-        return namingServerService.getFileLocation(filename);
+    @GetMapping("/nodes/files/replicate/{filename}")
+    public String getReplicationLocation(@PathVariable String filename) {
+        return namingServerService.getReplicationLocation(filename);
     }
 
     @GetMapping("/topology")

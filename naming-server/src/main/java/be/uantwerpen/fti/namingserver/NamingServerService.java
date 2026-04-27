@@ -86,17 +86,18 @@ public class NamingServerService {
     }
 
     /**
-     * Determines the node ID (IP) where a file is stored.
+     * Determines the node ID (IP) where a file should be replicated.
+     * Logic: node.hash < file.hash
      */
-    public String getFileLocation(String filename) {
+    public String getReplicationLocation(String filename) {
         if (nodeMap.isEmpty()) return null;
 
         int fileHash = HashUtils.calculateHash(filename);
 
-        // Find the node with the hash smaller than or equal to the file hash
-        Integer targetNodeHash = nodeMap.floorKey(fileHash);
+        // Find the node with the hash strictly smaller than the file hash
+        Integer targetNodeHash = nodeMap.lowerKey(fileHash);
 
-        // If N is empty, the node with the biggest hash stores the requested file.
+        // Wrap around: If no smaller hash exists, it goes to the largest hash in the ring
         if (targetNodeHash == null) {
             targetNodeHash = nodeMap.lastKey();
         }

@@ -14,10 +14,14 @@ public class NodeApplication implements CommandLineRunner {
 
     private final NodeState nodeState;
     private final DiscoveryService discoveryService;
+    private final FileReplicationService replicationService;
 
-    public NodeApplication(NodeState nodeState, DiscoveryService discoveryService) {
+    public NodeApplication(NodeState nodeState,
+                           DiscoveryService discoveryService,
+                           FileReplicationService replicationService) {
         this.nodeState = nodeState;
         this.discoveryService = discoveryService;
+        this.replicationService = replicationService;
     }
 
     public static void main(String[] args) {
@@ -46,5 +50,10 @@ public class NodeApplication implements CommandLineRunner {
         Thread.sleep(randomDelay);
 
         discoveryService.bootstrap();
+
+        // Wait a few seconds to ensure the network ring has stabilized,
+        // then start replicating our local files!
+        Thread.sleep(3000);
+        replicationService.replicateExistingFiles();
     }
 }

@@ -1,6 +1,10 @@
 package be.uantwerpen.fti.node;
-
+import be.uantwerpen.fti.common.HashUtils;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+
+import java.io.File;
 import java.util.Map;
 import java.util.HashMap;
 
@@ -49,5 +53,28 @@ public class NodeController {
         info.put("previousID", nodeState.getPreviousID());
         info.put("nextID", nodeState.getNextID());
         return info;
+    }
+    @DeleteMapping("/files/{filename}")
+    public ResponseEntity<String> deleteReplicatedFile(@PathVariable String filename) {
+        File file = new File("replicated_files/" + filename);
+
+        if (file.exists() && file.delete()) {
+            System.out.println("🗑️ Successfully deleted replica of: " + filename);
+            return ResponseEntity.ok("Deleted");
+        }
+
+        System.out.println("⚠️ Replicated file not found for deletion: " + filename);
+        return ResponseEntity.notFound().build();
+    }
+
+    @PostMapping("/files/{filename}/offline")
+    public ResponseEntity<String> localFileWentOffline(@PathVariable String filename) {
+        System.out.println("⚠️ Received warning: The local source of '" + filename + "' has shut down.");
+        return ResponseEntity.ok("Warning received");
+    }
+    @GetMapping("/hash/{text}")
+    public String getDebugHash(@PathVariable String text) {
+        int hashValue = HashUtils.calculateHash(text);
+        return "The hash for '" + text + "' is: " + hashValue;
     }
 }

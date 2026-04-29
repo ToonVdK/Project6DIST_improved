@@ -1,6 +1,6 @@
 # deploy.ps1
-$sshKey = "C:\Users\vande\.ssh\netlab"
-$vmUser = "s0233366@143.129.43.65"
+$sshKey = "C:\Users\almaf\.ssh\netlab"
+$vmUser = "s0233689@143.129.43.69"
 
 echo "1. Make sure you double-clicked 'package' in IntelliJ!"
 

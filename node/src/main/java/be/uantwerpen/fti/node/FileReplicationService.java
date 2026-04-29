@@ -15,7 +15,9 @@ public class FileReplicationService {
     private final RestTemplate restTemplate;
     private final String namingServerUrl;
 
-    // We define our local storage folder
+    @Value("${node.api.port:8080}")
+    private String nodePort;
+
     private final String LOCAL_FOLDER = "local_files/";
 
     public FileReplicationService(NodeState nodeState,
@@ -26,16 +28,14 @@ public class FileReplicationService {
         this.namingServerUrl = namingServerUrl;
         this.restTemplate = new RestTemplate();
 
-        // Ensure the local folder exists
         new File(LOCAL_FOLDER).mkdirs();
     }
 
-    /**
-     * Called during the Starting Phase to replicate all existing local files.
-     */
+    // ==========================================
+    // PHASE 1: STARTUP SYNCHRONIZATION
+    // ==========================================
     public void replicateExistingFiles() {
         System.out.println("Starting Phase: Scanning local files for replication...");
-
         File folder = new File(LOCAL_FOLDER);
         File[] listOfFiles = folder.listFiles();
 
@@ -45,40 +45,109 @@ public class FileReplicationService {
         }
 
         for (File file : listOfFiles) {
-            if (file.isFile()) {
+            if (file.isFile() && !file.getName().startsWith(".") && !file.getName().endsWith("~")) {
                 replicateSingleFile(file);
             }
         }
     }
 
-    /**
-     * Replicates a single file based on the Naming Server's instruction.
-     */
     public void replicateSingleFile(File file) {
         try {
-            // 1. Ask the Naming Server where this file belongs
             String targetIp = restTemplate.getForObject(
                     namingServerUrl + "files/replicate/" + file.getName(), String.class);
 
             if (targetIp != null) {
-                // Edge Case: Check if we are supposed to replicate it to ourselves!
-                // (e.g. if we are the only node in the network)
                 if (targetIp.equals(nodeState.getIpAddress())) {
                     System.out.println("File " + file.getName() + " maps to local node. No transfer needed.");
                     return;
                 }
-
-                System.out.println("Naming Server maps '" + file.getName() + "' to replicated node: " + targetIp);
-
-                // 2. Transfer the file via TCP
                 tcpService.sendFile(targetIp, file);
-
-            } else {
-                System.err.println("Naming server could not find a target for " + file.getName());
             }
-
         } catch (Exception e) {
             System.err.println("Error replicating file " + file.getName() + ": " + e.getMessage());
+        }
+    }
+
+    // ==========================================
+    // PHASE 2: LIVE FOLDER UPDATES
+    // ==========================================
+    public void notifyReplicaDeletion(String filename) {
+        try {
+            String targetIp = restTemplate.getForObject(
+                    namingServerUrl + "files/replicate/" + filename, String.class);
+
+            if (targetIp != null) {
+                if (targetIp.equals(nodeState.getIpAddress())) {
+                    System.out.println("File " + filename + " was local only. No remote replica to delete.");
+                    return;
+                }
+                restTemplate.delete("http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename);
+            }
+        } catch (Exception e) {
+            System.err.println("Error notifying replica deletion for " + filename + ": " + e.getMessage());
+        }
+    }
+
+    // ==========================================
+    // PHASE 3: SHUTDOWN LOGIC
+    // ==========================================
+    public void transferReplicasOnShutdown() {
+        System.out.println("🛑 Initiating Phase 3: Shifting replicated files to previous neighbor...");
+        File folder = new File("replicated_files/");
+        File[] listOfFiles = folder.listFiles();
+
+        if (listOfFiles == null || listOfFiles.length == 0) {
+            System.out.println("No replicated files to transfer.");
+            return;
+        }
+
+        try {
+            int previousNodeId = nodeState.getPreviousID();
+
+            if (previousNodeId == nodeState.getCurrentID()) {
+                System.out.println("Only node in network. No need to transfer replicas.");
+                return;
+            }
+
+            String previousIp = restTemplate.getForObject(
+                    namingServerUrl + "ip/" + previousNodeId, String.class);
+
+            if (previousIp != null) {
+                for (File file : listOfFiles) {
+                    if (file.isFile()) {
+                        System.out.println("📦 Transferring replica '" + file.getName() + "' to Node " + previousNodeId);
+                        tcpService.sendFile(previousIp, file);
+                        Thread.sleep(50);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Error transferring replicas during shutdown: " + e.getMessage());
+        }
+    }
+
+    // THIS IS THE METHOD YOUR SHUTDOWNSERVICE WAS LOOKING FOR!
+    public void warnLocalFilesOffline() {
+        System.out.println("📢 Warning network: Local files are going offline...");
+        File folder = new File(LOCAL_FOLDER);
+        File[] listOfFiles = folder.listFiles();
+
+        if (listOfFiles == null || listOfFiles.length == 0) return;
+
+        for (File file : listOfFiles) {
+            if (file.isFile() && !file.getName().startsWith(".") && !file.getName().endsWith("~")) {
+                try {
+                    String targetIp = restTemplate.getForObject(
+                            namingServerUrl + "files/replicate/" + file.getName(), String.class);
+
+                    if (targetIp != null && !targetIp.equals(nodeState.getIpAddress())) {
+                        System.out.println("Telling Node " + targetIp + " that local file '" + file.getName() + "' is offline.");
+                        restTemplate.postForObject("http://" + targetIp + ":" + nodePort + "/api/node/files/" + file.getName() + "/offline", null, String.class);
+                    }
+                } catch (Exception e) {
+                    System.err.println("Failed to warn about offline file " + file.getName() + ": " + e.getMessage());
+                }
+            }
         }
     }
 }

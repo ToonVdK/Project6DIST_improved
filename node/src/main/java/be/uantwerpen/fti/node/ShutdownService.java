@@ -14,10 +14,16 @@ public class ShutdownService {
     private final String NAMING_SERVER_URL;
     @Value("${node.api.port}") String nodePort;
 
+    // NEW: We inject the FileReplicationService so we can shift files on shutdown
+    private final FileReplicationService replicationService;
+
+    // NEW: Constructor updated to accept the FileReplicationService
     public ShutdownService(NodeState nodeState,
-                           @Value("${naming.server.url}") String namingServerUrl) {
+                           @Value("${naming.server.url}") String namingServerUrl,
+                           FileReplicationService replicationService) {
         this.nodeState = nodeState;
         this.NAMING_SERVER_URL = namingServerUrl;
+        this.replicationService = replicationService;
     }
 
     /**
@@ -35,6 +41,20 @@ public class ShutdownService {
             removeFromNamingServer();
             return;
         }
+
+        // ==========================================
+        // LAB 5 PHASE 3: FILE SYNCHRONIZATION
+        // ==========================================
+        try {
+            // 1. Shift our replicated files to the previous neighbor BEFORE we leave the ring
+            replicationService.transferReplicasOnShutdown();
+
+            // 2. Warn the owners of our local files that our local physical files are going offline
+            replicationService.warnLocalFilesOffline();
+        } catch (Exception e) {
+            System.err.println("Error during file synchronization on shutdown: " + e.getMessage());
+        }
+        // ==========================================
 
         try {
             // 1. Send the ID of the next node to the previous node

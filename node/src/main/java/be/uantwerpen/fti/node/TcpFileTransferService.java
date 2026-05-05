@@ -70,7 +70,7 @@ public class TcpFileTransferService {
                         totalRead += read;
                     }
                 }
-                System.out.println("📥 Successfully received replicated file: " + fileName);
+                System.out.println("Successfully received replicated file: " + fileName);
             } catch (IOException e) {
                 System.err.println("Error receiving file: " + e.getMessage());
             } finally {

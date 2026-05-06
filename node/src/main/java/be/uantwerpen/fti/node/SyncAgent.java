@@ -1,5 +1,6 @@
 package be.uantwerpen.fti.node;
 
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
@@ -39,8 +40,13 @@ public class SyncAgent implements Runnable, Serializable {
     ) {
         this.nodeState = nodeState;
         this.replicationService = replicationService;
-        this.restTemplate = new RestTemplate();
         this.intervalMs = intervalMs;
+
+        // Add the timeout factory here!
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(2000);
+        factory.setReadTimeout(2000);
+        this.restTemplate = new RestTemplate(factory);
     }
 
     @Override
@@ -50,7 +56,10 @@ public class SyncAgent implements Runnable, Serializable {
         }
 
         if (restTemplate == null) {
-            restTemplate = new RestTemplate();
+            SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+            factory.setConnectTimeout(2000);
+            factory.setReadTimeout(2000);
+            restTemplate = new RestTemplate(factory);
         }
 
         System.out.println("Sync Agent running on node " + nodeState.getCurrentID());

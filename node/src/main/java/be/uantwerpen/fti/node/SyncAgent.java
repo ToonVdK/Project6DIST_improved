@@ -18,6 +18,8 @@ public class SyncAgent implements Runnable, Serializable {
     private long intervalMs = 5000;
     private boolean running = true;
 
+    private String nodePort = "8080";
+
     public SyncAgent() {
         // Needed for serialization/deserialization.
     }
@@ -25,28 +27,27 @@ public class SyncAgent implements Runnable, Serializable {
     public SyncAgent(
             NodeState nodeState,
             FileReplicationService replicationService,
-            long intervalMs
+            long intervalMs,
+            String nodePort
     ) {
         this.nodeState = nodeState;
         this.replicationService = replicationService;
-        this.restTemplate = new RestTemplate();
         this.intervalMs = intervalMs;
+        this.nodePort = nodePort;
+        this.restTemplate = createRestTemplate();
     }
 
     public void configure(
             NodeState nodeState,
             FileReplicationService replicationService,
-            long intervalMs
+            long intervalMs,
+            String nodePort
     ) {
         this.nodeState = nodeState;
         this.replicationService = replicationService;
         this.intervalMs = intervalMs;
-
-        // Add the timeout factory here!
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(2000);
-        factory.setReadTimeout(2000);
-        this.restTemplate = new RestTemplate(factory);
+        this.nodePort = nodePort;
+        this.restTemplate = createRestTemplate();
     }
 
     @Override
@@ -56,13 +57,10 @@ public class SyncAgent implements Runnable, Serializable {
         }
 
         if (restTemplate == null) {
-            SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-            factory.setConnectTimeout(2000);
-            factory.setReadTimeout(2000);
-            restTemplate = new RestTemplate(factory);
+            restTemplate = createRestTemplate();
         }
 
-        System.out.println("Sync Agent running on node " + nodeState.getCurrentID());
+        System.out.println("[SYNC AGENT] Started on node " + nodeState.getCurrentID());
 
         while (running) {
             try {
@@ -76,7 +74,7 @@ public class SyncAgent implements Runnable, Serializable {
                 running = false;
 
             } catch (Exception e) {
-                System.err.println("Sync Agent error: " + e.getMessage());
+                System.err.println("[SYNC AGENT] Error: " + e.getMessage());
 
                 try {
                     Thread.sleep(intervalMs);
@@ -86,18 +84,23 @@ public class SyncAgent implements Runnable, Serializable {
                 }
             }
         }
+
+        System.out.println("[SYNC AGENT] Stopped on node " + nodeState.getCurrentID());
     }
 
     private void scanLocalOwnedFiles() {
         File[] localFiles = replicationService.getLocalFiles();
 
+        int count = 0;
+
         for (File file : localFiles) {
-            if (file.isFile()
-                    && !file.getName().startsWith(".")
-                    && !file.getName().endsWith("~")) {
+            if (isValidFile(file)) {
                 nodeState.addOrUpdateOwnedFile(file.getName());
+                count++;
             }
         }
+
+        System.out.println("[SYNC AGENT] Scanned " + count + " local owned file(s).");
     }
 
     private void synchronizeWithNextNode() {
@@ -110,30 +113,49 @@ public class SyncAgent implements Runnable, Serializable {
         String nextIp = replicationService.getNodeIp(nextId);
 
         if (nextIp == null || nextIp.trim().isEmpty()) {
+            System.out.println("[SYNC AGENT] Could not sync. Next node IP unknown for ID " + nextId);
             return;
         }
 
-        String nextUrl = "http://" + nextIp + ":8080/api/node/files/list";
+        String nextListUrl = "http://" + nextIp + ":" + nodePort + "/api/node/files/list";
+        String nextMergeUrl = "http://" + nextIp + ":" + nodePort + "/api/node/files/list/merge";
 
         try {
             @SuppressWarnings("unchecked")
-            Map<String, NodeState.FileInfo> nextFileList =
-                    restTemplate.getForObject(nextUrl, Map.class);
+            Map<String, ?> nextFileList = restTemplate.getForObject(nextListUrl, Map.class);
 
             if (nextFileList != null) {
                 nodeState.mergeFileList(nextFileList);
             }
 
-            /*
-             * Push our merged view back to the next node.
-             * This makes convergence faster and keeps all nodes synchronized.
-             */
-            String mergeUrl = "http://" + nextIp + ":8080/api/node/files/list/merge";
-            restTemplate.postForObject(mergeUrl, nodeState.getFileListSnapshot(), String.class);
+            restTemplate.postForObject(
+                    nextMergeUrl,
+                    nodeState.getFileListSnapshot(),
+                    String.class
+            );
+
+            System.out.println("[SYNC AGENT] Synced file list with next node " + nextId);
 
         } catch (Exception e) {
-            System.err.println("Sync Agent could not sync with next node " + nextId + ": " + e.getMessage());
+            System.err.println(
+                    "[SYNC AGENT] Could not sync with next node " +
+                            nextId + " at " + nextIp + ": " + e.getMessage()
+            );
         }
+    }
+
+    private boolean isValidFile(File file) {
+        return file != null
+                && file.isFile()
+                && !file.getName().startsWith(".")
+                && !file.getName().endsWith("~");
+    }
+
+    private RestTemplate createRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(2000);
+        factory.setReadTimeout(2000);
+        return new RestTemplate(factory);
     }
 
     public void stop() {

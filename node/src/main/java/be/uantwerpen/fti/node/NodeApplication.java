@@ -1,5 +1,6 @@
 package be.uantwerpen.fti.node;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -15,6 +16,9 @@ public class NodeApplication implements CommandLineRunner {
     private final NodeState nodeState;
     private final DiscoveryService discoveryService;
     private final FileReplicationService replicationService;
+
+    @Value("${node.api.port:8080}")
+    private String nodePort;
 
     public NodeApplication(
             NodeState nodeState,
@@ -45,24 +49,30 @@ public class NodeApplication implements CommandLineRunner {
 
         discoveryService.listenForMulticast();
 
-        // Keep the random delay to prevent all nodes from bootstrapping at the exact same time.
         int randomDelay = new java.util.Random().nextInt(4000);
         Thread.sleep(randomDelay);
 
         discoveryService.bootstrap();
 
-        // Wait a few seconds to ensure the network ring has stabilized.
         Thread.sleep(3000);
 
-        // Lab 5 behavior: replicate local files.
         replicationService.replicateExistingFiles();
 
-        // Lab 6 behavior: start Sync Agent.
-        SyncAgent syncAgent = new SyncAgent(nodeState, replicationService, 5000);
-        Thread syncAgentThread = new Thread(syncAgent, "SyncAgent-" + nodeState.getCurrentID());
+        SyncAgent syncAgent = new SyncAgent(
+                nodeState,
+                replicationService,
+                5000,
+                nodePort
+        );
+
+        Thread syncAgentThread = new Thread(
+                syncAgent,
+                "SyncAgent-" + nodeState.getCurrentID()
+        );
+
         syncAgentThread.setDaemon(true);
         syncAgentThread.start();
 
-        System.out.println("Sync Agent started for node " + nodeState.getCurrentID());
+        System.out.println("[SYNC AGENT] Started for node " + nodeState.getCurrentID());
     }
 }

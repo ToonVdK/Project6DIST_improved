@@ -114,7 +114,7 @@ public class NodeController {
     }
 
     @PostMapping("/files/list/merge")
-    public ResponseEntity<String> mergeFileList(@RequestBody Map<String, NodeState.FileInfo> incomingList) {
+    public ResponseEntity<String> mergeFileList(@RequestBody Map<String, ?> incomingList) {
         nodeState.mergeFileList(incomingList);
         return ResponseEntity.ok("File list merged");
     }

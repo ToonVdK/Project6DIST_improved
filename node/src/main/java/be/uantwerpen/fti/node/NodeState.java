@@ -14,16 +14,15 @@ public class NodeState {
     private String ipAddress;
     private int currentID;
 
-    // Volatile forces all threads to read the live, updated values.
     private volatile int previousID;
     private volatile int nextID;
 
     /*
      * Lab 6:
-     * Every node keeps a synchronized list of all files in System Y.
+     * Global file list known by this node.
      *
-     * Key   = filename
-     * Value = file metadata: owner, location, lock state
+     * key   = filename
+     * value = owner/location/lock metadata
      */
     private final Map<String, FileInfo> fileList = new ConcurrentHashMap<>();
 
@@ -32,29 +31,28 @@ public class NodeState {
         this.ipAddress = ipAddress;
         this.currentID = HashUtils.calculateHash(name);
 
-        // Initially, a node is its own previous and next node.
         this.previousID = this.currentID;
         this.nextID = this.currentID;
     }
 
     public String getName() {
-        return this.name;
+        return name;
     }
 
     public String getIpAddress() {
-        return this.ipAddress;
+        return ipAddress;
     }
 
     public int getCurrentID() {
-        return this.currentID;
+        return currentID;
     }
 
     public int getPreviousID() {
-        return this.previousID;
+        return previousID;
     }
 
     public int getNextID() {
-        return this.nextID;
+        return nextID;
     }
 
     public void setName(String name) {
@@ -91,20 +89,25 @@ public class NodeState {
         return snapshot;
     }
 
-    public void mergeFileList(Map<String, FileInfo> incomingList) {
+    /*
+     * Important:
+     * This method accepts Map<String, ?> instead of Map<String, FileInfo>
+     * because REST JSON often deserializes values as LinkedHashMap.
+     */
+    public void mergeFileList(Map<String, ?> incomingList) {
         if (incomingList == null) {
             return;
         }
 
-        for (Map.Entry<String, FileInfo> entry : incomingList.entrySet()) {
+        for (Map.Entry<String, ?> entry : incomingList.entrySet()) {
             String filename = entry.getKey();
-            FileInfo incoming = entry.getValue();
+            FileInfo incoming = toFileInfo(entry.getValue(), filename);
 
-            if (filename == null || incoming == null) {
+            if (filename == null || incoming == null || incoming.getFilename() == null) {
                 continue;
             }
 
-            fileList.merge(filename, new FileInfo(incoming), this::mergeFileInfo);
+            fileList.merge(filename, incoming, this::mergeFileInfo);
         }
     }
 
@@ -120,42 +123,59 @@ public class NodeState {
         FileInfo merged = new FileInfo(current);
 
         /*
-         * Prefer the incoming ownership if it is known.
-         * This is important when the Failure Agent changes ownership.
+         * Ownership:
+         * If incoming ownership is known, accept it.
+         * This is needed when the Failure Agent changes the owner.
          */
         if (incoming.getOwnerId() != -1) {
             merged.setOwnerId(incoming.getOwnerId());
             merged.setOwnerIp(incoming.getOwnerIp());
         }
 
-        /*
-         * If any node knows the file is locked, keep it locked.
-         * Unlocking is done explicitly through unlockFile().
-         */
-        if (incoming.isLocked()) {
-            merged.setLocked(true);
-            merged.setLockOwnerId(incoming.getLockOwnerId());
-        }
-
         if (incoming.getLastKnownLocationIp() != null) {
             merged.setLastKnownLocationIp(incoming.getLastKnownLocationIp());
+        }
+
+        /*
+         * Locking:
+         * Only accept newer lock information.
+         * This prevents old "locked=false" values from undoing a newer lock.
+         */
+        if (incoming.getLockVersion() > merged.getLockVersion()) {
+            merged.setLocked(incoming.isLocked());
+            merged.setLockOwnerId(incoming.isLocked() ? incoming.getLockOwnerId() : -1);
+            merged.setLockVersion(incoming.getLockVersion());
         }
 
         return merged;
     }
 
+    /*
+     * This is called by SyncAgent when scanning local_files/.
+     * It must NOT reset lock state every time the file is scanned.
+     */
     public void addOrUpdateOwnedFile(String filename) {
         if (filename == null || filename.trim().isEmpty()) {
             return;
         }
+
+        FileInfo existing = fileList.get(filename);
 
         FileInfo info = new FileInfo();
         info.setFilename(filename);
         info.setOwnerId(currentID);
         info.setOwnerIp(ipAddress);
         info.setLastKnownLocationIp(ipAddress);
-        info.setLocked(false);
-        info.setLockOwnerId(-1);
+
+        if (existing != null) {
+            info.setLocked(existing.isLocked());
+            info.setLockOwnerId(existing.getLockOwnerId());
+            info.setLockVersion(existing.getLockVersion());
+        } else {
+            info.setLocked(false);
+            info.setLockOwnerId(-1);
+            info.setLockVersion(0L);
+        }
 
         fileList.merge(filename, info, this::mergeFileInfo);
     }
@@ -188,6 +208,9 @@ public class NodeState {
 
             info.setLocked(true);
             info.setLockOwnerId(lockOwnerId);
+            info.setLockVersion(System.currentTimeMillis());
+
+            System.out.println("[LOCK] File locked: " + filename + " by node " + lockOwnerId);
             return true;
         }
     }
@@ -210,6 +233,9 @@ public class NodeState {
 
             info.setLocked(false);
             info.setLockOwnerId(-1);
+            info.setLockVersion(System.currentTimeMillis());
+
+            System.out.println("[LOCK] File unlocked: " + filename + " by node " + lockOwnerId);
             return true;
         }
     }
@@ -225,6 +251,10 @@ public class NodeState {
     }
 
     public void updateOwner(String filename, int newOwnerId, String newOwnerIp) {
+        if (filename == null) {
+            return;
+        }
+
         FileInfo info = fileList.get(filename);
 
         if (info == null) {
@@ -236,10 +266,95 @@ public class NodeState {
         info.setOwnerId(newOwnerId);
         info.setOwnerIp(newOwnerIp);
         info.setLastKnownLocationIp(newOwnerIp);
+
+        System.out.println("[FILE LIST] Owner of '" + filename + "' updated to node " + newOwnerId);
     }
 
     // ============================================================
-    // Inner class to avoid adding another file
+    // JSON/REST conversion helpers
+    // ============================================================
+
+    @SuppressWarnings("unchecked")
+    private FileInfo toFileInfo(Object raw, String fallbackFilename) {
+        if (raw == null) {
+            return null;
+        }
+
+        if (raw instanceof FileInfo fileInfo) {
+            return new FileInfo(fileInfo);
+        }
+
+        if (raw instanceof Map<?, ?> rawMap) {
+            Map<String, Object> map = (Map<String, Object>) rawMap;
+
+            FileInfo info = new FileInfo();
+
+            Object filenameValue = map.get("filename");
+            info.setFilename(filenameValue == null ? fallbackFilename : filenameValue.toString());
+
+            info.setOwnerId(asInt(map.get("ownerId"), -1));
+            info.setOwnerIp(asString(map.get("ownerIp")));
+            info.setLastKnownLocationIp(asString(map.get("lastKnownLocationIp")));
+            info.setLocked(asBoolean(map.get("locked"), false));
+            info.setLockOwnerId(asInt(map.get("lockOwnerId"), -1));
+            info.setLockVersion(asLong(map.get("lockVersion"), 0L));
+
+            return info;
+        }
+
+        return null;
+    }
+
+    private String asString(Object value) {
+        return value == null ? null : value.toString();
+    }
+
+    private int asInt(Object value, int defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private long asLong(Object value, long defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+
+        try {
+            return Long.parseLong(value.toString());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private boolean asBoolean(Object value, boolean defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+
+        return Boolean.parseBoolean(value.toString());
+    }
+
+    // ============================================================
+    // Inner class to avoid adding an extra file
     // ============================================================
 
     public static class FileInfo implements Serializable {
@@ -250,8 +365,15 @@ public class NodeState {
         private int ownerId = -1;
         private String ownerIp;
         private String lastKnownLocationIp;
+
         private boolean locked;
         private int lockOwnerId = -1;
+
+        /*
+         * Used to know whether incoming lock information is newer.
+         * Lock/unlock changes update this value.
+         */
+        private long lockVersion = 0L;
 
         public FileInfo() {
         }
@@ -267,6 +389,7 @@ public class NodeState {
             this.lastKnownLocationIp = other.lastKnownLocationIp;
             this.locked = other.locked;
             this.lockOwnerId = other.lockOwnerId;
+            this.lockVersion = other.lockVersion;
         }
 
         public String getFilename() {
@@ -315,6 +438,14 @@ public class NodeState {
 
         public void setLockOwnerId(int lockOwnerId) {
             this.lockOwnerId = lockOwnerId;
+        }
+
+        public long getLockVersion() {
+            return lockVersion;
+        }
+
+        public void setLockVersion(long lockVersion) {
+            this.lockVersion = lockVersion;
         }
     }
 }

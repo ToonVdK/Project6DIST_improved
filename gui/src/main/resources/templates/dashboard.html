@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <title>System Y Network Monitor</title>
-    <link rel="stylesheet" href="../static/css/dashboard.css">
+    <link rel="stylesheet" th:href="@{/css/dashboard.css}">
 </head>
 <body>
 <div class="layout">
     <aside class="sidebar">
-        <div><img class="ua-box" src="/static/fti.png" alt="fti logo"></div>
+        <div><img class="ua-box" th:src="@{/fti.png}" alt="fti logo"></div>
         <h2>MENU</h2>
         <a href="#dashboard">Dashboard</a>
         <a href="#nodes">Nodes</a>

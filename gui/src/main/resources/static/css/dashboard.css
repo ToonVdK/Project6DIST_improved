@@ -1,11 +1,12 @@
 :root {
-    --bg: #777;
-    --panel: #0d0b35;
-    --panel-light: #17145a;
-    --panel-alt: #221f75;
-    --text: #ffffff;
+    --main-color: #b10097;
+    --bg: #e4c1db;
+    --panel: #ffffff;
+    --panel-light: #f1f1f1;
+    --panel-alt: #e3e2e3;
+    --text: #002e65;
     --muted: #c8c8d8;
-    --accent: #e30050;
+    --accent: #ffffff;
     --ok: #25c36f;
     --warning: #ffbf33;
     --danger: #ff2f63;
@@ -38,16 +39,13 @@ body {
 }
 
 .ua-box {
-    background: #ffffff;
-    color: #d6004c;
-    font-weight: 800;
-    padding: 12px;
-    width: 58px;
+    max-block-size: 100px;
     text-align: center;
-    margin-bottom: 24px;
+    margin: 24px;
 }
 
 .sidebar h2 {
+    color: var(--accent);
     font-size: 18px;
     margin-bottom: 22px;
 }
@@ -69,7 +67,7 @@ body {
 }
 
 .topbar {
-    background: #ffffff;
+    background: var(--main-color);
     color: var(--accent);
     padding: 24px;
     display: flex;
@@ -85,7 +83,6 @@ body {
 }
 
 .topbar p {
-    color: #555;
     margin: 4px 0 0;
 }
 
@@ -134,7 +131,7 @@ th, td {
 }
 
 th {
-    color: #ffffff;
+    color: var(--text);
     font-weight: 700;
 }
 
@@ -174,7 +171,7 @@ dl {
 }
 
 dt {
-    color: var(--muted);
+    color: var(--text);
 }
 
 dd {
@@ -266,7 +263,7 @@ input {
 }
 
 .empty, .hint {
-    color: var(--muted);
+    color: var(--main-color);
 }
 
 .file-groups ul {

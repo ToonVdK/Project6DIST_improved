@@ -4,11 +4,19 @@ import be.uantwerpen.fti.common.HashUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -102,6 +110,36 @@ public class NodeController {
     public ResponseEntity<String> localFileWentOffline(@PathVariable String filename) {
         System.out.println("Received warning: The local source of '" + filename + "' has shut down.");
         return ResponseEntity.ok("Warning received");
+    }
+
+    // ============================================================
+    // GUI endpoint: physical local and replicated files
+    // ============================================================
+
+    @GetMapping("/files/physical")
+    public ResponseEntity<Map<String, List<String>>> getPhysicalFiles() {
+        Map<String, List<String>> result = new HashMap<>();
+        result.put("local", listFiles("local_files"));
+        result.put("replicated", listFiles("replicated_files"));
+        return ResponseEntity.ok(result);
+    }
+
+    private List<String> listFiles(String folderName) {
+        List<String> filenames = new ArrayList<>();
+        File folder = new File(folderName);
+        File[] files = folder.listFiles();
+
+        if (files == null) {
+            return filenames;
+        }
+
+        for (File file : files) {
+            if (file.isFile() && !file.getName().startsWith(".") && !file.getName().endsWith("~")) {
+                filenames.add(file.getName());
+            }
+        }
+
+        return filenames;
     }
 
     // ============================================================

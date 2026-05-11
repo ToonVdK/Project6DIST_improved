@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>System Y Network Monitor</title>
+    <link rel="stylesheet" th:href="@{/css/dashboard.css}">
+</head>
+<body>
+<div class="layout">
+    <aside class="sidebar">
+        <div class="ua-box">UA</div>
+        <h2>MENU</h2>
+        <a href="#dashboard">Dashboard</a>
+        <a href="#nodes">Nodes</a>
+        <a href="#files">Files</a>
+        <a href="#details">Details</a>
+    </aside>
+
+    <main class="content">
+        <header class="topbar">
+            <div>
+                <h1>NETWORK MONITOR</h1>
+                <p>System Y GUI</p>
+            </div>
+            <a class="refresh" href="/dashboard">⟳ Refresh</a>
+        </header>
+
+        <section th:if="${successMessage}" class="message success" th:text="${successMessage}"></section>
+        <section th:if="${errorMessage}" class="message error" th:text="${errorMessage}"></section>
+
+        <section id="dashboard" class="grid two-columns">
+            <div class="panel">
+                <h2>Nameserver</h2>
+                <table>
+                    <tr>
+                        <th>Status</th>
+                        <td>
+                            <span th:classappend="${view.namingServerOnline} ? 'status-online' : 'status-offline'"
+                                  th:text="${view.namingServerOnline} ? 'online' : 'offline'"></span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Nodes</th>
+                        <td th:text="${view.nodeCount}">0</td>
+                    </tr>
+                    <tr>
+                        <th>API</th>
+                        <td th:text="${view.namingServerBaseUrl}">-</td>
+                    </tr>
+                    <tr>
+                        <th>Discovery</th>
+                        <td>
+                            <span class="status-online" th:text="${view.discoveryEnabled} ? 'enabled' : 'disabled'"></span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="panel">
+                <h2>Add node</h2>
+                <form class="inline-form" method="post" action="/nodes/add">
+                    <label for="nodeName">Node name</label>
+                    <input id="nodeName" name="nodeName" placeholder="Example: Gamma" required>
+                    <button type="submit" class="button primary">Add node</button>
+                </form>
+                <p class="hint">The GUI starts a new Docker container using the configured node image and network.</p>
+            </div>
+        </section>
+
+        <section id="nodes" class="panel">
+            <div class="panel-title-row">
+                <h2>Nodes</h2>
+                <span class="badge" th:text="${view.nodeCount + ' active node(s)'}">0 active nodes</span>
+            </div>
+
+            <div class="node-cards" th:if="${!view.nodes.isEmpty()}">
+                <article class="node-card" th:each="node : ${view.nodes}"
+                         th:classappend="${view.selectedNode != null and node.id == view.selectedNode.id} ? ' selected' : ''">
+                    <h3 th:text="${node.name}">node</h3>
+                    <dl>
+                        <dt>Node ID</dt>
+                        <dd th:text="${node.id}">0</dd>
+                        <dt>Node IP</dt>
+                        <dd th:text="${node.ip}">0.0.0.0</dd>
+                        <dt>Status</dt>
+                        <dd>
+                            <span th:class="${node.online} ? 'status-online' : 'status-offline'"
+                                  th:text="${node.status}">online</span>
+                        </dd>
+                    </dl>
+                    <div class="card-actions">
+                        <a class="button secondary" th:href="@{/dashboard(selectedId=${node.id})}">Details</a>
+                        <form method="post" action="/nodes/remove">
+                            <input type="hidden" name="nodeName" th:value="${node.name}">
+                            <button class="button danger" type="submit">Remove</button>
+                        </form>
+                    </div>
+                </article>
+            </div>
+
+            <p th:if="${view.nodes.isEmpty()}" class="empty">No nodes are currently registered in the Naming Server.</p>
+        </section>
+
+        <section id="details" class="panel details-panel">
+            <h2>Selected node details</h2>
+
+            <div th:if="${view.selectedNode == null}" class="empty">
+                Please select a node.
+            </div>
+
+            <div th:if="${view.selectedNode != null}">
+                <table>
+                    <tr>
+                        <th>Name</th>
+                        <td th:text="${view.selectedNode.name}">-</td>
+                    </tr>
+                    <tr>
+                        <th>Status</th>
+                        <td>
+                            <span th:class="${view.selectedNode.online} ? 'status-online' : 'status-offline'"
+                                  th:text="${view.selectedNode.status}">online</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>ID</th>
+                        <td th:text="${view.selectedNode.id}">-</td>
+                    </tr>
+                    <tr>
+                        <th>IP</th>
+                        <td th:text="${view.selectedNode.ip}">-</td>
+                    </tr>
+                    <tr>
+                        <th>Previous ID</th>
+                        <td th:text="${view.selectedNode.previousID}">-</td>
+                    </tr>
+                    <tr>
+                        <th>Next ID</th>
+                        <td th:text="${view.selectedNode.nextID}">-</td>
+                    </tr>
+                </table>
+
+                <div class="grid two-columns file-groups">
+                    <div>
+                        <h3>Local files</h3>
+                        <ul th:if="${!view.selectedNode.localFiles.isEmpty()}">
+                            <li th:each="file : ${view.selectedNode.localFiles}" th:text="${file}">file.txt</li>
+                        </ul>
+                        <p th:if="${view.selectedNode.localFiles.isEmpty()}" class="empty">No local files.</p>
+                    </div>
+
+                    <div>
+                        <h3>Replicated files</h3>
+                        <ul th:if="${!view.selectedNode.replicatedFiles.isEmpty()}">
+                            <li th:each="file : ${view.selectedNode.replicatedFiles}" th:text="${file}">file.txt</li>
+                        </ul>
+                        <p th:if="${view.selectedNode.replicatedFiles.isEmpty()}" class="empty">No replicated files.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="files" class="panel">
+            <h2>Global synchronized file list</h2>
+            <table class="file-table" th:if="${!view.globalKnownFiles.isEmpty()}">
+                <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Owner ID</th>
+                    <th>Owner IP</th>
+                    <th>Last known location</th>
+                    <th>Lock status</th>
+                    <th>Observed on</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="file : ${view.globalKnownFiles}">
+                    <td th:text="${file.filename}">file.txt</td>
+                    <td th:text="${file.ownerId}">0</td>
+                    <td th:text="${file.ownerIp}">-</td>
+                    <td th:text="${file.lastKnownLocationIp}">-</td>
+                    <td>
+                        <span th:class="${file.locked} ? 'locked' : 'unlocked'"
+                              th:text="${file.locked} ? 'locked' : 'available'">available</span>
+                    </td>
+                    <td th:text="${file.discoveredOn}">node</td>
+                </tr>
+                </tbody>
+            </table>
+            <p th:if="${view.globalKnownFiles.isEmpty()}" class="empty">No files are known yet. Add a file to a node's local_files directory.</p>
+        </section>
+    </main>
+</div>
+</body>
+</html>

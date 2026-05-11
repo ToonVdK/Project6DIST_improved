@@ -16,6 +16,11 @@ services:
     container_name: node-1
     depends_on:
       - naming-server
+    environment:
+      - NODE_NAME=Alpha
+    volumes:
+      - ./docker-data/node-alpha/local_files:/local_files
+      - ./docker-data/node-alpha/replicated_files:/replicated_files
     networks:
       - system-y-network
 
@@ -25,6 +30,11 @@ services:
     container_name: node-2
     depends_on:
       - naming-server
+    environment:
+      - NODE_NAME=Beta
+    volumes:
+      - ./docker-data/node-beta/local_files:/local_files
+      - ./docker-data/node-beta/replicated_files:/replicated_files
     networks:
       - system-y-network
 
@@ -34,6 +44,31 @@ services:
     container_name: node-3
     depends_on:
       - naming-server
+    environment:
+      - NODE_NAME=Delta
+    volumes:
+      - ./docker-data/node-delta/local_files:/local_files
+      - ./docker-data/node-delta/replicated_files:/replicated_files
+    networks:
+      - system-y-network
+
+  gui:
+    build:
+      context: ./gui
+    container_name: system-y-gui
+    depends_on:
+      - naming-server
+    ports:
+      - "8090:8090"
+    environment:
+      - GUI_NAMING_SERVER_URL=http://naming-server:8080/api
+      - GUI_NODE_API_PORT=8080
+      - GUI_DOCKER_NETWORK=system-y-network
+      - GUI_NODE_IMAGE=node-img
+      - GUI_NODE_DATA_DIR=/gui-data
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./gui-data:/gui-data
     networks:
       - system-y-network
 

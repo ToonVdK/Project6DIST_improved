@@ -37,10 +37,6 @@ public class NodeController {
         this.restTemplate = new RestTemplate(factory);
     }
 
-    // ============================================================
-    // Existing topology endpoints
-    // ============================================================
-
     @PostMapping("/next/{newNextId}")
     public String updateNextId(@PathVariable int newNextId) {
         nodeState.setNextID(newNextId);
@@ -82,10 +78,6 @@ public class NodeController {
         return "The hash for '" + text + "' is: " + hashValue;
     }
 
-    // ============================================================
-    // Existing file endpoints
-    // ============================================================
-
     @DeleteMapping("/files/{filename}")
     public ResponseEntity<String> deleteReplicatedFile(@PathVariable String filename) {
         File file = new File("replicated_files/" + filename);
@@ -106,10 +98,6 @@ public class NodeController {
         return ResponseEntity.ok("Warning received");
     }
 
-    // ============================================================
-    // GUI helper endpoint
-    // ============================================================
-
     @GetMapping("/files/physical")
     public ResponseEntity<Map<String, Object>> getPhysicalFiles() {
         List<String> localFiles = listFilesFromFirstExistingDirectory("local_files", "/local_files", "/app/local_files");
@@ -118,7 +106,6 @@ public class NodeController {
         Map<String, Object> result = new HashMap<>();
         result.put("local", localFiles);
         result.put("replicated", replicatedFiles);
-
         return ResponseEntity.ok(result);
     }
 
@@ -133,7 +120,6 @@ public class NodeController {
             }
 
             File[] files = directory.listFiles();
-
             if (files == null) {
                 return result;
             }
@@ -149,10 +135,6 @@ public class NodeController {
 
         return result;
     }
-
-    // ============================================================
-    // Lab 6: synchronized file list endpoints
-    // ============================================================
 
     @GetMapping("/files/list")
     public Map<String, NodeState.FileInfo> getFileList() {
@@ -173,28 +155,40 @@ public class NodeController {
     @PostMapping("/files/{filename}/lock")
     public ResponseEntity<String> lockFile(@PathVariable String filename) {
         boolean locked = nodeState.lockFile(filename, nodeState.getCurrentID());
-
         if (locked) {
             return ResponseEntity.ok("File locked: " + filename);
         }
-
         return ResponseEntity.status(409).body("File is already locked or unknown: " + filename);
     }
 
     @PostMapping("/files/{filename}/unlock")
     public ResponseEntity<String> unlockFile(@PathVariable String filename) {
         boolean unlocked = nodeState.unlockFile(filename, nodeState.getCurrentID());
-
         if (unlocked) {
             return ResponseEntity.ok("File unlocked: " + filename);
         }
-
         return ResponseEntity.status(409).body("Could not unlock file: " + filename);
     }
 
-    // ============================================================
-    // Lab 6: Failure Agent endpoint
-    // ============================================================
+    @PostMapping("/files/{filename}/promote")
+    public ResponseEntity<Boolean> promoteReplicaToLocal(@PathVariable String filename) {
+        boolean promoted = replicationService.promoteReplicaToLocal(filename);
+
+        if (promoted) {
+            nodeState.updateOwner(filename, nodeState.getCurrentID(), nodeState.getIpAddress());
+
+            NodeState.FileInfo updated = nodeState.getFileInfo(filename);
+            if (updated != null) {
+                updated.setLocked(false);
+                updated.setLockOwnerId(-1);
+                nodeState.addOrUpdateFile(updated);
+            }
+
+            System.out.println("[OWNERSHIP] Node " + nodeState.getCurrentID() + " promoted and now owns '" + filename + "'.");
+        }
+
+        return ResponseEntity.ok(promoted);
+    }
 
     @PostMapping("/agents/failure")
     public ResponseEntity<String> receiveFailureAgent(@RequestBody FailureAgent agent) {
@@ -217,13 +211,11 @@ public class NodeController {
             }
 
             String nextIp = replicationService.getNodeIp(nextId);
-
             if (nextIp == null || nextIp.trim().isEmpty()) {
                 return ResponseEntity.ok("Failure Agent stopped because next node IP was unknown");
             }
 
             String nextUrl = "http://" + nextIp + ":" + nodePort + "/api/node/agents/failure";
-
             System.out.println("Passing Failure Agent to next node " + nextId + " at " + nextIp);
             restTemplate.postForEntity(nextUrl, agent, String.class);
 

@@ -1,17 +1,16 @@
 package be.uantwerpen.fti.node;
-import be.uantwerpen.fti.common.HashUtils;
 
+import be.uantwerpen.fti.common.HashUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
-import java.util.HashMap;
-import java.util.Map;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.AbstractMap;
-
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class FileReplicationService {
@@ -40,10 +39,6 @@ public class FileReplicationService {
         new File(LOCAL_FOLDER).mkdirs();
         new File(REPLICATED_FOLDER).mkdirs();
     }
-
-    // ============================================================
-    // PHASE 1: STARTUP SYNCHRONIZATION
-    // ============================================================
 
     public void replicateExistingFiles() {
         System.out.println("Starting Phase: Scanning local files for replication...");
@@ -88,10 +83,6 @@ public class FileReplicationService {
         }
     }
 
-    // ============================================================
-    // PHASE 2: LIVE FOLDER UPDATES
-    // ============================================================
-
     public void notifyReplicaDeletion(String filename) {
         try {
             nodeState.removeFile(filename);
@@ -111,10 +102,6 @@ public class FileReplicationService {
             System.err.println("Error notifying replica deletion for " + filename + ": " + e.getMessage());
         }
     }
-
-    // ============================================================
-    // PHASE 3: SHUTDOWN LOGIC
-    // ============================================================
 
     public void transferReplicasOnShutdown() {
         System.out.println("Initiating Phase 3: Shifting replicated files to previous neighbor...");
@@ -188,21 +175,15 @@ public class FileReplicationService {
         }
     }
 
-    // ============================================================
-    // Lab 6 helper methods
-    // ============================================================
-
     public File[] getLocalFiles() {
         File folder = new File(LOCAL_FOLDER);
         File[] files = folder.listFiles();
-
         return files == null ? new File[0] : files;
     }
 
     public File[] getReplicatedFiles() {
         File folder = new File(REPLICATED_FOLDER);
         File[] files = folder.listFiles();
-
         return files == null ? new File[0] : files;
     }
 
@@ -221,13 +202,11 @@ public class FileReplicationService {
         }
 
         File local = new File(LOCAL_FOLDER + filename);
-
         if (local.exists() && local.isFile()) {
             return local;
         }
 
         File replicated = new File(REPLICATED_FOLDER + filename);
-
         if (replicated.exists() && replicated.isFile()) {
             return replicated;
         }
@@ -315,9 +294,7 @@ public class FileReplicationService {
                     "http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename + "/exists",
                     Boolean.class
             );
-
             return exists != null && exists;
-
         } catch (Exception e) {
             return false;
         }
@@ -325,7 +302,6 @@ public class FileReplicationService {
 
     public Map.Entry<Integer, String> getReplicationOwnerExcludingNode(String filename, int excludedNodeId) {
         Map<Integer, String> topology = getTopology();
-
         topology.remove(excludedNodeId);
 
         if (topology.isEmpty()) {
@@ -334,13 +310,8 @@ public class FileReplicationService {
         }
 
         int fileHash = HashUtils.calculateHash(filename);
-
         Integer selectedNodeId = null;
 
-        /*
-         * Same rule as the naming server:
-         * choose the node with the largest hash smaller than the file hash.
-         */
         for (Integer nodeId : topology.keySet()) {
             if (nodeId < fileHash) {
                 if (selectedNodeId == null || nodeId > selectedNodeId) {
@@ -349,11 +320,6 @@ public class FileReplicationService {
             }
         }
 
-        /*
-         * Wrap-around case:
-         * if no node hash is smaller than the file hash,
-         * choose the largest surviving node hash.
-         */
         if (selectedNodeId == null) {
             for (Integer nodeId : topology.keySet()) {
                 if (selectedNodeId == null || nodeId > selectedNodeId) {
@@ -363,15 +329,33 @@ public class FileReplicationService {
         }
 
         String selectedIp = topology.get(selectedNodeId);
-
-        System.out.println(
-                "[OWNERSHIP] New owner for '" + filename +
-                        "' excluding node " + excludedNodeId +
-                        " is node " + selectedNodeId +
-                        " at " + selectedIp
-        );
+        System.out.println("[OWNERSHIP] New owner for '" + filename + "' excluding node " + excludedNodeId +
+                " is node " + selectedNodeId + " at " + selectedIp);
 
         return new AbstractMap.SimpleEntry<>(selectedNodeId, selectedIp);
+    }
+
+    public Map.Entry<Integer, String> findBestNewOwnerForFile(String filename, int excludedNodeId) {
+        Map<Integer, String> topology = getTopology();
+        topology.remove(excludedNodeId);
+
+        if (topology.isEmpty()) {
+            System.out.println("[OWNERSHIP] No surviving nodes available for file: " + filename);
+            return null;
+        }
+
+        for (Map.Entry<Integer, String> entry : topology.entrySet()) {
+            int nodeId = entry.getKey();
+            String nodeIp = entry.getValue();
+
+            if (remoteNodeHasFile(nodeIp, filename)) {
+                System.out.println("[OWNERSHIP] New owner for '" + filename +
+                        "' chosen because it already has a physical copy: node " + nodeId + " at " + nodeIp);
+                return new AbstractMap.SimpleEntry<>(nodeId, nodeIp);
+            }
+        }
+
+        return getReplicationOwnerExcludingNode(filename, excludedNodeId);
     }
 
     public boolean promoteReplicaToLocal(String filename) {
@@ -381,7 +365,6 @@ public class FileReplicationService {
 
         File localFolder = new File(LOCAL_FOLDER);
         File replicatedFolder = new File(REPLICATED_FOLDER);
-
         localFolder.mkdirs();
         replicatedFolder.mkdirs();
 
@@ -390,6 +373,7 @@ public class FileReplicationService {
 
         if (localFile.exists() && localFile.isFile()) {
             System.out.println("[OWNERSHIP] File already exists in local_files: " + filename);
+            nodeState.addOrUpdateOwnedFile(filename);
             return true;
         }
 
@@ -399,27 +383,33 @@ public class FileReplicationService {
         }
 
         try {
-            Files.move(
-                    replicatedFile.toPath(),
-                    localFile.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING
-            );
-
-            System.out.println(
-                    "[OWNERSHIP] Promoted '" + filename +
-                            "' from replicated_files to local_files."
-            );
-
+            Files.move(replicatedFile.toPath(), localFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            System.out.println("[OWNERSHIP] Promoted '" + filename + "' from replicated_files to local_files.");
             nodeState.addOrUpdateOwnedFile(filename);
-
             return true;
+        } catch (Exception e) {
+            System.err.println("[OWNERSHIP] Failed to promote replica '" + filename + "': " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean requestPromotionOnNode(String filename, String targetIp) {
+        if (filename == null || targetIp == null || targetIp.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            Boolean result = restTemplate.postForObject(
+                    "http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename + "/promote",
+                    null,
+                    Boolean.class
+            );
+
+            return result != null && result;
 
         } catch (Exception e) {
-            System.err.println(
-                    "[OWNERSHIP] Failed to promote replica '" +
-                            filename + "': " + e.getMessage()
-            );
-
+            System.err.println("[OWNERSHIP] Could not request promotion of '" + filename +
+                    "' on node " + targetIp + ": " + e.getMessage());
             return false;
         }
     }

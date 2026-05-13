@@ -4,7 +4,6 @@ import java.io.File;
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 
 public class FailureAgent implements Runnable, Serializable {
@@ -52,7 +51,7 @@ public class FailureAgent implements Runnable, Serializable {
 
         System.out.println(
                 "Failure Agent running on node " + currentNodeId +
-                        " for failed node " + failedNodeId
+                        " for failed/leaving node " + failedNodeId
         );
 
         Map<String, NodeState.FileInfo> fileList = nodeState.getFileListSnapshot();
@@ -67,10 +66,6 @@ public class FailureAgent implements Runnable, Serializable {
             }
         }
 
-        /*
-         * Also check physical replicated files.
-         * This helps when the local file list was not perfectly synchronized yet.
-         */
         for (File replicatedFile : replicationService.getReplicatedFiles()) {
             if (replicatedFile.isFile()
                     && !replicatedFile.getName().startsWith(".")
@@ -90,7 +85,7 @@ public class FailureAgent implements Runnable, Serializable {
 
         try {
             Map.Entry<Integer, String> newOwner =
-                    replicationService.getReplicationOwnerExcludingNode(filename, failedNodeId);
+                    replicationService.findBestNewOwnerForFile(filename, failedNodeId);
 
             if (newOwner == null) {
                 System.out.println("[FAILURE AGENT] No new owner found for file: " + filename);
@@ -104,53 +99,44 @@ public class FailureAgent implements Runnable, Serializable {
             boolean currentNodeIsNewOwner = newOwnerIp.equals(nodeState.getIpAddress());
 
             if (currentNodeIsNewOwner) {
-                /*
-                 * This node becomes the new official owner.
-                 * If it only had the file as a replica, promote it to local_files.
-                 */
                 boolean promoted = replicationService.promoteReplicaToLocal(filename);
 
                 if (promoted) {
                     System.out.println(
-                            "[FAILURE AGENT] Node " + nodeState.getCurrentID() +
-                                    " is now owner of '" + filename +
-                                    "' and has it in local_files."
+                            "[FAILURE AGENT] Current node " + nodeState.getCurrentID() +
+                                    " promoted '" + filename + "' to local_files."
                     );
                 } else {
                     System.out.println(
-                            "[FAILURE AGENT] Node " + nodeState.getCurrentID() +
-                                    " is new owner of '" + filename +
-                                    "', but no replica was available to promote."
+                            "[FAILURE AGENT] Current node is new owner of '" + filename +
+                                    "', but promotion failed because no replica was found locally."
                     );
-                }
-
-            } else if (currentNodeHasCopy) {
-                /*
-                 * This node has a copy, but another node is the new owner.
-                 * If the new owner does not have the file yet, transfer it.
-                 */
-                if (replicationService.remoteNodeHasFile(newOwnerIp, filename)) {
-                    System.out.println(
-                            "[FAILURE AGENT] New owner already has '" +
-                                    filename + "'. Only updating metadata."
-                    );
-
-                } else {
-                    System.out.println(
-                            "[FAILURE AGENT] Transferring '" + filename +
-                                    "' from node " + nodeState.getCurrentID() +
-                                    " to new owner " + newOwnerId
-                    );
-
-                    replicationService.transferFileToNode(filename, newOwnerIp);
                 }
 
             } else {
-                System.out.println(
-                        "[FAILURE AGENT] Node " + nodeState.getCurrentID() +
-                                " has no physical copy of '" + filename +
-                                "'. Only updating metadata."
-                );
+                boolean promotedRemotely = replicationService.requestPromotionOnNode(filename, newOwnerIp);
+
+                if (promotedRemotely) {
+                    System.out.println(
+                            "[FAILURE AGENT] Requested new owner node " +
+                                    newOwnerId + " to promote '" + filename + "'."
+                    );
+
+                } else if (currentNodeHasCopy) {
+                    System.out.println(
+                            "[FAILURE AGENT] Remote promotion failed. Transferring '" +
+                                    filename + "' to new owner " + newOwnerId
+                    );
+
+                    replicationService.transferFileToNode(filename, newOwnerIp);
+                    replicationService.requestPromotionOnNode(filename, newOwnerIp);
+
+                } else {
+                    System.out.println(
+                            "[FAILURE AGENT] No physical copy available on current node for '" +
+                                    filename + "'. Metadata will still be updated."
+                    );
+                }
             }
 
             nodeState.updateOwner(filename, newOwnerId, newOwnerIp);

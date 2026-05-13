@@ -184,7 +184,10 @@
                                     <textarea name="content" th:text="${view.editFile.content}"></textarea>
                                     <div class="editor-actions">
                                         <button type="submit" class="button secondary">Save changes</button>
-                                        <a class="button danger" th:href="@{/dashboard(selectedId=${view.editFile.selectedId})} + '#nodes'">Cancel</a>
+                                        <a class="button danger"
+                                           th:href="@{/dashboard(selectedId=${view.editFile.selectedId})#nodes}">
+                                            Cancel
+                                        </a>
                                     </div>
                                 </form>
                             </div>
@@ -198,7 +201,7 @@
                                             <div class="file-actions">
                                                 <a class="icon-button edit"
                                                    th:if="${#strings.endsWith(#strings.toLowerCase(file), '.txt')}"
-                                                   th:href="@{/dashboard(selectedId=${view.selectedNode.id}, editNode=${view.selectedNode.name}, editLocation='local', editFile=${file})} + '#nodes'"
+                                                   th:href="@{/dashboard(selectedId=${view.selectedNode.id}, editNode=${view.selectedNode.name}, editLocation='local', editFile=${file})#nodes}"
                                                    title="Edit text file">✎</a>
                                                 <form method="post" action="/files/delete">
                                                     <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">

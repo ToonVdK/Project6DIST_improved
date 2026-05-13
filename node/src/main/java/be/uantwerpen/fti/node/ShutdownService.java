@@ -30,15 +30,20 @@ public class ShutdownService {
     public void shutdown() {
         System.out.println("Initiating graceful shutdown for node: " + nodeState.getName());
 
+        int currentID = nodeState.getCurrentID();
         int previousID = nodeState.getPreviousID();
         int nextID = nodeState.getNextID();
 
-        if (previousID == nodeState.getCurrentID() && nextID == nodeState.getCurrentID()) {
+        if (previousID == currentID && nextID == currentID) {
             removeFromNamingServer();
             return;
         }
 
         try {
+            /*
+             * Lab 5 behavior: replicas that were stored on this node for other owners
+             * are shifted before the node disappears.
+             */
             replicationService.transferReplicasOnShutdown();
             replicationService.warnLocalFilesOffline();
         } catch (Exception e) {
@@ -46,6 +51,10 @@ public class ShutdownService {
         }
 
         try {
+            /*
+             * Patch the ring first, so the FailureAgent/ownership handoff can travel over
+             * the surviving nodes without passing through this leaving node.
+             */
             String prevIp = restTemplate.getForObject(
                     NAMING_SERVER_URL + "ip/" + previousID,
                     String.class
@@ -80,7 +89,14 @@ public class ShutdownService {
             System.err.println("Error during shutdown topology update: " + e.getMessage());
         }
 
+        /*
+         * Lab 6 extension:
+         * A graceful shutdown is not a crash, so FailureDetectionService will not start a
+         * FailureAgent. We explicitly start the same ownership handoff here, before the
+         * node is removed from the Naming Server.
+         */
         startGracefulOwnershipHandoff(nextID);
+
         removeFromNamingServer();
     }
 
@@ -101,6 +117,10 @@ public class ShutdownService {
                 return;
             }
 
+            /*
+             * Push this node's last known file metadata to the starter node. This makes sure
+             * the surviving ring knows which files belonged to the leaving node.
+             */
             restTemplate.postForObject(
                     "http://" + starterIp + ":" + nodePort + "/api/node/files/list/merge",
                     nodeState.getFileListSnapshot(),

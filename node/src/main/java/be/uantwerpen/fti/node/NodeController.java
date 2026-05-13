@@ -37,6 +37,10 @@ public class NodeController {
         this.restTemplate = new RestTemplate(factory);
     }
 
+    // ============================================================
+    // Topology endpoints
+    // ============================================================
+
     @PostMapping("/next/{newNextId}")
     public String updateNextId(@PathVariable int newNextId) {
         nodeState.setNextID(newNextId);
@@ -78,6 +82,10 @@ public class NodeController {
         return "The hash for '" + text + "' is: " + hashValue;
     }
 
+    // ============================================================
+    // Physical file endpoints
+    // ============================================================
+
     @DeleteMapping("/files/{filename}")
     public ResponseEntity<String> deleteReplicatedFile(@PathVariable String filename) {
         File file = new File("replicated_files/" + filename);
@@ -106,6 +114,7 @@ public class NodeController {
         Map<String, Object> result = new HashMap<>();
         result.put("local", localFiles);
         result.put("replicated", replicatedFiles);
+
         return ResponseEntity.ok(result);
     }
 
@@ -120,6 +129,7 @@ public class NodeController {
             }
 
             File[] files = directory.listFiles();
+
             if (files == null) {
                 return result;
             }
@@ -136,6 +146,25 @@ public class NodeController {
         return result;
     }
 
+    @GetMapping("/files/{filename}/exists")
+    public ResponseEntity<Boolean> fileExists(@PathVariable String filename) {
+        return ResponseEntity.ok(replicationService.hasLocalOrReplicatedCopy(filename));
+    }
+
+    @GetMapping("/files/{filename}/replica-exists")
+    public ResponseEntity<Boolean> replicatedFileExists(@PathVariable String filename) {
+        return ResponseEntity.ok(replicationService.hasReplicatedCopy(filename));
+    }
+
+    @GetMapping("/files/{filename}/local-exists")
+    public ResponseEntity<Boolean> localFileExists(@PathVariable String filename) {
+        return ResponseEntity.ok(replicationService.hasLocalCopy(filename));
+    }
+
+    // ============================================================
+    // Lab 6 synchronized file list endpoints
+    // ============================================================
+
     @GetMapping("/files/list")
     public Map<String, NodeState.FileInfo> getFileList() {
         return nodeState.getFileListSnapshot();
@@ -147,51 +176,72 @@ public class NodeController {
         return ResponseEntity.ok("File list merged");
     }
 
-    @GetMapping("/files/{filename}/exists")
-    public ResponseEntity<Boolean> fileExists(@PathVariable String filename) {
-        return ResponseEntity.ok(replicationService.hasLocalOrReplicatedCopy(filename));
-    }
-
     @PostMapping("/files/{filename}/lock")
     public ResponseEntity<String> lockFile(@PathVariable String filename) {
         boolean locked = nodeState.lockFile(filename, nodeState.getCurrentID());
+
         if (locked) {
             return ResponseEntity.ok("File locked: " + filename);
         }
+
         return ResponseEntity.status(409).body("File is already locked or unknown: " + filename);
     }
 
     @PostMapping("/files/{filename}/unlock")
     public ResponseEntity<String> unlockFile(@PathVariable String filename) {
         boolean unlocked = nodeState.unlockFile(filename, nodeState.getCurrentID());
+
         if (unlocked) {
             return ResponseEntity.ok("File unlocked: " + filename);
         }
+
         return ResponseEntity.status(409).body("Could not unlock file: " + filename);
     }
 
+    // ============================================================
+    // Ownership promotion endpoints
+    // ============================================================
+
     @PostMapping("/files/{filename}/promote")
-    public ResponseEntity<Boolean> promoteReplicaToLocal(
-            @PathVariable String filename,
-            @RequestParam(defaultValue = "-1") int excludeNodeId
-    ) {
-        boolean promoted = replicationService.promoteReplicaToLocal(filename, excludeNodeId);
+    public ResponseEntity<Boolean> promoteReplicaToLocal(@PathVariable String filename) {
+        boolean promoted = replicationService.promoteReplicaToLocal(filename);
 
         if (promoted) {
-            nodeState.updateOwner(filename, nodeState.getCurrentID(), nodeState.getIpAddress());
+            nodeState.updateOwner(
+                    filename,
+                    nodeState.getCurrentID(),
+                    nodeState.getIpAddress()
+            );
 
             NodeState.FileInfo updated = nodeState.getFileInfo(filename);
+
             if (updated != null) {
                 updated.setLocked(false);
                 updated.setLockOwnerId(-1);
                 nodeState.addOrUpdateFile(updated);
             }
 
-            System.out.println("[OWNERSHIP] Node " + nodeState.getCurrentID() + " promoted and now owns '" + filename + "'.");
+            System.out.println(
+                    "[OWNERSHIP] Node " + nodeState.getCurrentID() +
+                            " promoted and now owns '" + filename + "'."
+            );
         }
 
         return ResponseEntity.ok(promoted);
     }
+
+    @PostMapping("/files/{filename}/replicate-promoted")
+    public ResponseEntity<Boolean> replicatePromotedLocalFile(
+            @PathVariable String filename,
+            @RequestParam(defaultValue = "-1") int oldOwnerId
+    ) {
+        boolean replicated = replicationService.replicatePromotedLocalFile(filename, oldOwnerId);
+        return ResponseEntity.ok(replicated);
+    }
+
+    // ============================================================
+    // Lab 6 Failure Agent endpoint
+    // ============================================================
 
     @PostMapping("/agents/failure")
     public ResponseEntity<String> receiveFailureAgent(@RequestBody FailureAgent agent) {
@@ -214,11 +264,13 @@ public class NodeController {
             }
 
             String nextIp = replicationService.getNodeIp(nextId);
+
             if (nextIp == null || nextIp.trim().isEmpty()) {
                 return ResponseEntity.ok("Failure Agent stopped because next node IP was unknown");
             }
 
             String nextUrl = "http://" + nextIp + ":" + nodePort + "/api/node/agents/failure";
+
             System.out.println("Passing Failure Agent to next node " + nextId + " at " + nextIp);
             restTemplate.postForEntity(nextUrl, agent, String.class);
 

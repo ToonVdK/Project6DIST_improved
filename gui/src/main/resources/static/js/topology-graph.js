@@ -1,6 +1,6 @@
 (function () {
     const VIEWBOX_WIDTH = 1200;
-    const VIEWBOX_HEIGHT = 680;
+    const VIEWBOX_HEIGHT = 700;
     const CENTER = { x: VIEWBOX_WIDTH / 2, y: VIEWBOX_HEIGHT / 2 };
 
     function toNumber(value) {
@@ -9,16 +9,18 @@
     }
 
     function getNodes() {
-        return Array.from(document.querySelectorAll('.topology-node-data')).map((element) => ({
-            id: toNumber(element.dataset.id),
-            name: element.dataset.name || 'node',
-            ip: element.dataset.ip || '-',
-            status: element.dataset.status || 'unknown',
-            online: element.dataset.online === 'true',
-            previousID: toNumber(element.dataset.previousId),
-            nextID: toNumber(element.dataset.nextId),
-            selected: element.dataset.selected === 'true'
-        })).filter((node) => node.id !== null);
+        return Array.from(document.querySelectorAll('.topology-node-data'))
+            .map((element) => ({
+                id: toNumber(element.dataset.id),
+                name: element.dataset.name || 'node',
+                ip: element.dataset.ip || '-',
+                status: element.dataset.status || 'unknown',
+                online: element.dataset.online === 'true',
+                previousID: toNumber(element.dataset.previousId),
+                nextID: toNumber(element.dataset.nextId),
+                selected: element.dataset.selected === 'true'
+            }))
+            .filter((node) => node.id !== null);
     }
 
     function orderByRing(nodes, selectedId) {
@@ -66,8 +68,11 @@
             return positions;
         }
 
-        const radiusX = 440;
-        const radiusY = 235;
+        /*
+         * Wider ellipse gives more spacing between nodes so arrow lines are readable.
+         */
+        const radiusX = 470;
+        const radiusY = 245;
         const startAngle = -Math.PI / 2;
         const step = (Math.PI * 2) / nodes.length;
 
@@ -95,24 +100,18 @@
                 y: start.y + uy * (startRadius + 18)
             },
             end: {
-                x: end.x - ux * (endRadius + 30),
-                y: end.y - uy * (endRadius + 30)
+                x: end.x - ux * (endRadius + 34),
+                y: end.y - uy * (endRadius + 34)
             }
         };
     }
 
     function curveControlPoint(start, end) {
-        const mid = {
-            x: (start.x + end.x) / 2,
-            y: (start.y + end.y) / 2
-        };
-
+        const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
         const awayX = mid.x - CENTER.x;
         const awayY = mid.y - CENTER.y;
         const awayLength = Math.sqrt(awayX * awayX + awayY * awayY) || 1;
-
-        // Low curve strength keeps arrows clean and prevents strange distorted arrow shapes.
-        const curveStrength = 38;
+        const curveStrength = 45;
 
         return {
             x: mid.x + (awayX / awayLength) * curveStrength,
@@ -130,22 +129,13 @@
         const length = Math.sqrt(dx * dx + dy * dy) || 1;
         const ux = dx / length;
         const uy = dy / length;
-
-        const size = highlighted ? 18 : 15;
+        const size = highlighted ? 19 : 16;
         const halfWidth = highlighted ? 8 : 7;
 
         const tip = { x: end.x, y: end.y };
         const base = { x: end.x - ux * size, y: end.y - uy * size };
-
-        const left = {
-            x: base.x + (-uy) * halfWidth,
-            y: base.y + ux * halfWidth
-        };
-
-        const right = {
-            x: base.x - (-uy) * halfWidth,
-            y: base.y - ux * halfWidth
-        };
+        const left = { x: base.x + (-uy) * halfWidth, y: base.y + ux * halfWidth };
+        const right = { x: base.x - (-uy) * halfWidth, y: base.y - ux * halfWidth };
 
         return `${tip.x.toFixed(2)},${tip.y.toFixed(2)} ${left.x.toFixed(2)},${left.y.toFixed(2)} ${right.x.toFixed(2)},${right.y.toFixed(2)}`;
     }
@@ -155,27 +145,35 @@
     }
 
     function renderArrows(svg, nodes, positions, selectedId, selectedNode) {
+        if (nodes.length <= 1) {
+            return;
+        }
+
         const byId = new Map(nodes.map((node) => [node.id, node]));
 
         nodes.forEach((node) => {
             const target = byId.get(node.nextID);
+
             if (!target || target.id === node.id) {
                 return;
             }
 
             const start = positions.get(node.id);
             const end = positions.get(target.id);
+
             if (!start || !end) {
                 return;
             }
 
             const highlighted = node.id === selectedId || target.id === selectedId;
+
             const shortened = shortenLine(
                 start,
                 end,
                 nodeRadius(node, selectedId, selectedNode),
                 nodeRadius(target, selectedId, selectedNode)
             );
+
             const control = curveControlPoint(shortened.start, shortened.end);
 
             const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -195,6 +193,7 @@
 
         nodes.forEach((node) => {
             const position = positions.get(node.id);
+
             if (!position) {
                 return;
             }
@@ -224,6 +223,35 @@
         });
     }
 
+    function fixSingleNodeLayout(nodes) {
+        const focusRow = document.querySelector('.topology-focus-row');
+
+        if (!focusRow) {
+            return;
+        }
+
+        if (nodes.length === 1) {
+            focusRow.classList.add('single-node-mode');
+            focusRow.style.gridTemplateColumns = 'minmax(360px, 620px)';
+            focusRow.style.justifyContent = 'center';
+            focusRow.style.justifyItems = 'center';
+
+            document.querySelectorAll('.neighbour-card').forEach((card) => {
+                card.style.display = 'none';
+            });
+
+            const selectedCard = document.querySelector('.selected-focus-card');
+            if (selectedCard) {
+                selectedCard.style.width = '100%';
+                selectedCard.style.maxWidth = '620px';
+                selectedCard.style.transform = 'scale(1.04)';
+                selectedCard.style.transformOrigin = 'top center';
+            }
+        } else {
+            focusRow.classList.remove('single-node-mode');
+        }
+    }
+
     function initTopology() {
         const container = document.getElementById('interactiveTopology');
         const svg = document.getElementById('topologySvg');
@@ -234,11 +262,13 @@
         }
 
         const nodes = getNodes();
+
         if (nodes.length === 0) {
             return;
         }
 
         let selectedId = toNumber(container.dataset.selectedId);
+
         if (selectedId === null) {
             const markedSelected = nodes.find((node) => node.selected);
             selectedId = markedSelected ? markedSelected.id : nodes[0].id;
@@ -251,6 +281,7 @@
         clearSvg(svg);
         renderArrows(svg, nodes, positions, selectedId, selectedNode);
         renderNodes(layer, nodes, positions, selectedId, selectedNode);
+        fixSingleNodeLayout(nodes);
     }
 
     document.addEventListener('DOMContentLoaded', initTopology);

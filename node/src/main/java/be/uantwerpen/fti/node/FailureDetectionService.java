@@ -40,8 +40,11 @@ public class FailureDetectionService {
         this.restTemplate = new RestTemplate(factory);
     }
 
-    // Runs automatically every 5 seconds.
-    @Scheduled(fixedRate = 5000)
+    /*
+     * Initial delay avoids false failure detection while many nodes are bootstrapping and
+     * the topology reconciliation service is still correcting previous/next IDs.
+     */
+    @Scheduled(initialDelay = 12000, fixedRate = 5000)
     public void pingNextNode() {
         int previousID = nodeState.getPreviousID();
         int currentID = nodeState.getCurrentID();
@@ -58,7 +61,6 @@ public class FailureDetectionService {
             lastKnownPreviousID = previousID;
         }
 
-        // Do not ping if we are the only node in the network.
         if (nextID == currentID) {
             return;
         }
@@ -86,30 +88,17 @@ public class FailureDetectionService {
         }
 
         try {
-            /*
-             * Step 1:
-             * Ask the Naming Server for the failed node's previous and next node.
-             */
             int[] neighbors = restTemplate.getForObject(
                     namingServerUrl + "neighbors/" + failedNodeId,
                     int[].class
             );
 
-            /*
-             * Step 2:
-             * Remove the dead node from the Naming Server.
-             * After this, file ownership calculations will no longer choose the failed node.
-             */
             restTemplate.delete(namingServerUrl + "hash/" + failedNodeId);
 
             if (neighbors != null && neighbors.length == 2) {
                 int previousOfFailed = neighbors[0];
                 int nextOfFailed = neighbors[1];
 
-                /*
-                 * Step 3:
-                 * Update the previous node's next pointer.
-                 */
                 String prevIp = restTemplate.getForObject(
                         namingServerUrl + "ip/" + previousOfFailed,
                         String.class
@@ -123,10 +112,6 @@ public class FailureDetectionService {
                     );
                 }
 
-                /*
-                 * Step 4:
-                 * Update the next node's previous pointer.
-                 */
                 String nextIp = restTemplate.getForObject(
                         namingServerUrl + "ip/" + nextOfFailed,
                         String.class
@@ -142,11 +127,6 @@ public class FailureDetectionService {
 
                 System.out.println("Network topology recovered from failure of node " + failedNodeId);
 
-                /*
-                 * Step 5:
-                 * Lab 6: Start Failure Agent.
-                 * We send it to ourselves first. The controller will run it and pass it along the ring.
-                 */
                 FailureAgent failureAgent = new FailureAgent(failedNodeId, nodeState.getCurrentID());
 
                 restTemplate.postForObject(

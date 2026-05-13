@@ -14,6 +14,14 @@ public class FailureAgent implements Runnable, Serializable {
     private int starterNodeId;
     private Set<Integer> visitedNodeIds = new HashSet<>();
 
+    /*
+     * Important fix:
+     * A FailureAgent travels through multiple nodes. Without this set, the same file can be
+     * promoted/replicated more than once while the agent moves around the ring. That was the
+     * cause of situations where one file suddenly became local on multiple surviving nodes.
+     */
+    private Set<String> handledFilenames = new HashSet<>();
+
     private transient NodeState nodeState;
     private transient FileReplicationService replicationService;
     private transient String namingServerUrl;
@@ -62,10 +70,14 @@ public class FailureAgent implements Runnable, Serializable {
             }
 
             if (fileInfo.getOwnerId() == failedNodeId) {
-                handleFileOwnedByFailedNode(fileInfo);
+                handleFileOwnedByFailedNodeOnce(fileInfo);
             }
         }
 
+        /*
+         * Extra safety: also inspect physical replicas on this node. This helps if metadata
+         * synchronization was slightly behind when the failure happened.
+         */
         for (File replicatedFile : replicationService.getReplicatedFiles()) {
             if (replicatedFile.isFile()
                     && !replicatedFile.getName().startsWith(".")
@@ -74,10 +86,26 @@ public class FailureAgent implements Runnable, Serializable {
                 NodeState.FileInfo info = nodeState.getFileInfo(replicatedFile.getName());
 
                 if (info != null && info.getOwnerId() == failedNodeId) {
-                    handleFileOwnedByFailedNode(info);
+                    handleFileOwnedByFailedNodeOnce(info);
                 }
             }
         }
+    }
+
+    private void handleFileOwnedByFailedNodeOnce(NodeState.FileInfo fileInfo) {
+        String filename = fileInfo.getFilename();
+
+        if (filename == null || filename.trim().isEmpty()) {
+            return;
+        }
+
+        if (handledFilenames.contains(filename)) {
+            System.out.println("[FAILURE AGENT] File already handled by this agent, skipping: " + filename);
+            return;
+        }
+
+        handledFilenames.add(filename);
+        handleFileOwnedByFailedNode(fileInfo);
     }
 
     private void handleFileOwnedByFailedNode(NodeState.FileInfo fileInfo) {
@@ -97,9 +125,10 @@ public class FailureAgent implements Runnable, Serializable {
 
             boolean currentNodeHasCopy = replicationService.hasLocalOrReplicatedCopy(filename);
             boolean currentNodeIsNewOwner = newOwnerIp.equals(nodeState.getIpAddress());
+            boolean promoted = false;
 
             if (currentNodeIsNewOwner) {
-                boolean promoted = replicationService.promoteReplicaToLocal(filename, failedNodeId);
+                promoted = replicationService.promoteReplicaToLocal(filename);
 
                 if (promoted) {
                     System.out.println(
@@ -114,9 +143,13 @@ public class FailureAgent implements Runnable, Serializable {
                 }
 
             } else {
-                boolean promotedRemotely = replicationService.requestPromotionOnNode(filename, newOwnerIp, failedNodeId);
+                /*
+                 * Guarantee that the selected new owner itself performs the promotion.
+                 * The agent may be running on another node, so promotion must be remote-capable.
+                 */
+                promoted = replicationService.requestPromotionOnNode(filename, newOwnerIp);
 
-                if (promotedRemotely) {
+                if (promoted) {
                     System.out.println(
                             "[FAILURE AGENT] Requested new owner node " +
                                     newOwnerId + " to promote '" + filename + "'."
@@ -129,7 +162,7 @@ public class FailureAgent implements Runnable, Serializable {
                     );
 
                     replicationService.transferFileToNode(filename, newOwnerIp);
-                    replicationService.requestPromotionOnNode(filename, newOwnerIp, failedNodeId);
+                    promoted = replicationService.requestPromotionOnNode(filename, newOwnerIp);
 
                 } else {
                     System.out.println(
@@ -137,6 +170,16 @@ public class FailureAgent implements Runnable, Serializable {
                                     filename + "'. Metadata will still be updated."
                     );
                 }
+            }
+
+            /*
+             * Only after successful promotion do we ask the new owner to create a fresh backup
+             * replica on a different surviving node. This transfer writes to replicated_files on
+             * the backup node, not to local_files. That prevents the old bug where a third node
+             * became local owner by accident.
+             */
+            if (promoted) {
+                replicationService.requestBackupReplicationOnNode(filename, newOwnerIp, failedNodeId);
             }
 
             nodeState.updateOwner(filename, newOwnerId, newOwnerIp);
@@ -193,5 +236,13 @@ public class FailureAgent implements Runnable, Serializable {
 
     public void setVisitedNodeIds(Set<Integer> visitedNodeIds) {
         this.visitedNodeIds = visitedNodeIds;
+    }
+
+    public Set<String> getHandledFilenames() {
+        return handledFilenames;
+    }
+
+    public void setHandledFilenames(Set<String> handledFilenames) {
+        this.handledFilenames = handledFilenames == null ? new HashSet<>() : handledFilenames;
     }
 }

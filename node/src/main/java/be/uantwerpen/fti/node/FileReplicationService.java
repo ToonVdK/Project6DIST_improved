@@ -10,7 +10,10 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.AbstractMap;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 
 @Service
 public class FileReplicationService {
@@ -40,13 +43,16 @@ public class FileReplicationService {
         new File(REPLICATED_FOLDER).mkdirs();
     }
 
+    // ============================================================
+    // Lab 5: startup replication
+    // ============================================================
+
     public void replicateExistingFiles() {
         System.out.println("Starting Phase: Scanning local files for replication...");
 
-        File folder = new File(LOCAL_FOLDER);
-        File[] listOfFiles = folder.listFiles();
+        File[] listOfFiles = getLocalFiles();
 
-        if (listOfFiles == null || listOfFiles.length == 0) {
+        if (listOfFiles.length == 0) {
             System.out.println("No local files found to replicate.");
             return;
         }
@@ -69,19 +75,26 @@ public class FileReplicationService {
 
             String targetIp = getReplicationOwnerIp(file.getName());
 
-            if (targetIp != null) {
-                if (targetIp.equals(nodeState.getIpAddress())) {
-                    System.out.println("File " + file.getName() + " maps to local node. No transfer needed.");
-                    return;
-                }
-
-                tcpService.sendFile(targetIp, file);
+            if (targetIp == null || targetIp.trim().isEmpty()) {
+                System.out.println("No replication target found for " + file.getName());
+                return;
             }
+
+            if (targetIp.equals(nodeState.getIpAddress())) {
+                System.out.println("File " + file.getName() + " maps to local node. No transfer needed.");
+                return;
+            }
+
+            tcpService.sendFile(targetIp, file);
 
         } catch (Exception e) {
             System.err.println("Error replicating file " + file.getName() + ": " + e.getMessage());
         }
     }
+
+    // ============================================================
+    // Lab 5: live update / delete synchronization
+    // ============================================================
 
     public void notifyReplicaDeletion(String filename) {
         try {
@@ -89,27 +102,32 @@ public class FileReplicationService {
 
             String targetIp = getReplicationOwnerIp(filename);
 
-            if (targetIp != null) {
-                if (targetIp.equals(nodeState.getIpAddress())) {
-                    System.out.println("File " + filename + " was local only. No remote replica to delete.");
-                    return;
-                }
-
-                restTemplate.delete("http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename);
+            if (targetIp == null || targetIp.trim().isEmpty()) {
+                return;
             }
+
+            if (targetIp.equals(nodeState.getIpAddress())) {
+                System.out.println("File " + filename + " was local only. No remote replica to delete.");
+                return;
+            }
+
+            restTemplate.delete("http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename);
 
         } catch (Exception e) {
             System.err.println("Error notifying replica deletion for " + filename + ": " + e.getMessage());
         }
     }
 
+    // ============================================================
+    // Lab 5: shutdown replica shifting
+    // ============================================================
+
     public void transferReplicasOnShutdown() {
         System.out.println("Initiating Phase 3: Shifting replicated files to previous neighbor...");
 
-        File folder = new File(REPLICATED_FOLDER);
-        File[] listOfFiles = folder.listFiles();
+        File[] listOfFiles = getReplicatedFiles();
 
-        if (listOfFiles == null || listOfFiles.length == 0) {
+        if (listOfFiles.length == 0) {
             System.out.println("No replicated files to transfer.");
             return;
         }
@@ -142,27 +160,16 @@ public class FileReplicationService {
     public void warnLocalFilesOffline() {
         System.out.println("Warning network: Local files are going offline...");
 
-        File folder = new File(LOCAL_FOLDER);
-        File[] listOfFiles = folder.listFiles();
-
-        if (listOfFiles == null || listOfFiles.length == 0) {
-            return;
-        }
-
-        for (File file : listOfFiles) {
+        for (File file : getLocalFiles()) {
             if (isValidFile(file)) {
                 try {
                     String targetIp = getReplicationOwnerIp(file.getName());
 
                     if (targetIp != null && !targetIp.equals(nodeState.getIpAddress())) {
-                        System.out.println(
-                                "Telling Node " + targetIp +
-                                        " that local file '" + file.getName() + "' is offline."
-                        );
+                        System.out.println("Telling Node " + targetIp + " that local file '" + file.getName() + "' is offline.");
 
                         restTemplate.postForObject(
-                                "http://" + targetIp + ":" + nodePort +
-                                        "/api/node/files/" + file.getName() + "/offline",
+                                "http://" + targetIp + ":" + nodePort + "/api/node/files/" + file.getName() + "/offline",
                                 null,
                                 String.class
                         );
@@ -174,6 +181,10 @@ public class FileReplicationService {
             }
         }
     }
+
+    // ============================================================
+    // Physical file helpers
+    // ============================================================
 
     public File[] getLocalFiles() {
         File folder = new File(LOCAL_FOLDER);
@@ -187,13 +198,22 @@ public class FileReplicationService {
         return files == null ? new File[0] : files;
     }
 
-    public boolean hasLocalOrReplicatedCopy(String filename) {
+    public boolean hasLocalCopy(String filename) {
         if (filename == null || filename.trim().isEmpty()) {
             return false;
         }
+        return new File(LOCAL_FOLDER + filename).exists();
+    }
 
-        return new File(LOCAL_FOLDER + filename).exists()
-                || new File(REPLICATED_FOLDER + filename).exists();
+    public boolean hasReplicatedCopy(String filename) {
+        if (filename == null || filename.trim().isEmpty()) {
+            return false;
+        }
+        return new File(REPLICATED_FOLDER + filename).exists();
+    }
+
+    public boolean hasLocalOrReplicatedCopy(String filename) {
+        return hasLocalCopy(filename) || hasReplicatedCopy(filename);
     }
 
     public File getFileByName(String filename) {
@@ -235,6 +255,10 @@ public class FileReplicationService {
         tcpService.sendFile(targetIp, file);
     }
 
+    // ============================================================
+    // Naming server / topology helpers
+    // ============================================================
+
     public String getReplicationOwnerIp(String filename) {
         return restTemplate.getForObject(
                 namingServerUrl + "files/replicate/" + filename,
@@ -275,7 +299,7 @@ public class FileReplicationService {
         String topologyUrl = namingServerUrl.replace("/nodes/", "/topology");
 
         Map<String, String> rawTopology = restTemplate.getForObject(topologyUrl, Map.class);
-        Map<Integer, String> topology = new HashMap<>();
+        Map<Integer, String> topology = new TreeMap<>();
 
         if (rawTopology == null) {
             return topology;
@@ -294,18 +318,96 @@ public class FileReplicationService {
                     "http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename + "/exists",
                     Boolean.class
             );
+
             return exists != null && exists;
+
         } catch (Exception e) {
             return false;
         }
     }
 
+    public boolean remoteNodeHasReplicatedFile(String targetIp, String filename) {
+        try {
+            Boolean exists = restTemplate.getForObject(
+                    "http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename + "/replica-exists",
+                    Boolean.class
+            );
+
+            return exists != null && exists;
+
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // ============================================================
+    // Ownership handoff / promotion logic
+    // ============================================================
+
     public Map.Entry<Integer, String> getReplicationOwnerExcludingNode(String filename, int excludedNodeId) {
-        Map<Integer, String> topology = getTopology();
+        Set<Integer> excluded = new HashSet<>();
+        excluded.add(excludedNodeId);
+        return getRingOwnerExcluding(filename, excluded);
+    }
+
+    public Map.Entry<Integer, String> findBestNewOwnerForFile(String filename, int excludedNodeId) {
+        Map<Integer, String> topology = new TreeMap<>(getTopology());
         topology.remove(excludedNodeId);
 
         if (topology.isEmpty()) {
             System.out.println("[OWNERSHIP] No surviving nodes available for file: " + filename);
+            return null;
+        }
+
+        /*
+         * First preference: choose a surviving node that already has the file as a REPLICA.
+         * This avoids promoting random nodes that merely received a backup later.
+         */
+        for (Map.Entry<Integer, String> entry : topology.entrySet()) {
+            int nodeId = entry.getKey();
+            String nodeIp = entry.getValue();
+
+            if (remoteNodeHasReplicatedFile(nodeIp, filename)) {
+                System.out.println(
+                        "[OWNERSHIP] New owner for '" + filename +
+                                "' chosen because it has the replicated copy: node " + nodeId + " at " + nodeIp
+                );
+                return new AbstractMap.SimpleEntry<>(nodeId, nodeIp);
+            }
+        }
+
+        /*
+         * Second preference: any surviving node that physically has the file.
+         */
+        for (Map.Entry<Integer, String> entry : topology.entrySet()) {
+            int nodeId = entry.getKey();
+            String nodeIp = entry.getValue();
+
+            if (remoteNodeHasFile(nodeIp, filename)) {
+                System.out.println(
+                        "[OWNERSHIP] New owner for '" + filename +
+                                "' chosen because it has a physical copy: node " + nodeId + " at " + nodeIp
+                );
+                return new AbstractMap.SimpleEntry<>(nodeId, nodeIp);
+            }
+        }
+
+        /*
+         * Fallback: use the normal hash-ring rule, excluding the leaving/failed node.
+         */
+        Set<Integer> excluded = new HashSet<>();
+        excluded.add(excludedNodeId);
+        return getRingOwnerExcluding(filename, excluded);
+    }
+
+    private Map.Entry<Integer, String> getRingOwnerExcluding(String filename, Set<Integer> excludedNodeIds) {
+        Map<Integer, String> topology = new TreeMap<>(getTopology());
+
+        for (Integer excluded : excludedNodeIds) {
+            topology.remove(excluded);
+        }
+
+        if (topology.isEmpty()) {
             return null;
         }
 
@@ -321,54 +423,24 @@ public class FileReplicationService {
         }
 
         if (selectedNodeId == null) {
-            for (Integer nodeId : topology.keySet()) {
-                if (selectedNodeId == null || nodeId > selectedNodeId) {
-                    selectedNodeId = nodeId;
-                }
-            }
+            selectedNodeId = topology.keySet().stream().max(Integer::compareTo).orElse(null);
         }
 
-        String selectedIp = topology.get(selectedNodeId);
-        System.out.println("[OWNERSHIP] New owner for '" + filename + "' excluding node " + excludedNodeId +
-                " is node " + selectedNodeId + " at " + selectedIp);
-
-        return new AbstractMap.SimpleEntry<>(selectedNodeId, selectedIp);
-    }
-
-    public Map.Entry<Integer, String> findBestNewOwnerForFile(String filename, int excludedNodeId) {
-        Map<Integer, String> topology = getTopology();
-        topology.remove(excludedNodeId);
-
-        if (topology.isEmpty()) {
-            System.out.println("[OWNERSHIP] No surviving nodes available for file: " + filename);
+        if (selectedNodeId == null) {
             return null;
         }
 
-        for (Map.Entry<Integer, String> entry : topology.entrySet()) {
-            int nodeId = entry.getKey();
-            String nodeIp = entry.getValue();
-
-            if (remoteNodeHasFile(nodeIp, filename)) {
-                System.out.println("[OWNERSHIP] New owner for '" + filename +
-                        "' chosen because it already has a physical copy: node " + nodeId + " at " + nodeIp);
-                return new AbstractMap.SimpleEntry<>(nodeId, nodeIp);
-            }
-        }
-
-        return getReplicationOwnerExcludingNode(filename, excludedNodeId);
+        return new AbstractMap.SimpleEntry<>(selectedNodeId, topology.get(selectedNodeId));
     }
 
     public boolean promoteReplicaToLocal(String filename) {
-        return promoteReplicaToLocal(filename, -1);
-    }
-
-    public boolean promoteReplicaToLocal(String filename, int excludedNodeId) {
         if (filename == null || filename.trim().isEmpty()) {
             return false;
         }
 
         File localFolder = new File(LOCAL_FOLDER);
         File replicatedFolder = new File(REPLICATED_FOLDER);
+
         localFolder.mkdirs();
         replicatedFolder.mkdirs();
 
@@ -376,9 +448,11 @@ public class FileReplicationService {
         File replicatedFile = new File(REPLICATED_FOLDER + filename);
 
         if (localFile.exists() && localFile.isFile()) {
-            System.out.println("[OWNERSHIP] File already exists in local_files: " + filename);
+            if (replicatedFile.exists() && replicatedFile.isFile()) {
+                boolean deleted = replicatedFile.delete();
+                System.out.println("[OWNERSHIP] Local file already exists. Removed duplicate replica " + filename + ": " + deleted);
+            }
             nodeState.addOrUpdateOwnedFile(filename);
-            replicatePromotedLocalFileToBackupNode(filename, excludedNodeId);
             return true;
         }
 
@@ -388,150 +462,30 @@ public class FileReplicationService {
         }
 
         try {
-            Files.move(replicatedFile.toPath(), localFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            Files.move(
+                    replicatedFile.toPath(),
+                    localFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+
             System.out.println("[OWNERSHIP] Promoted '" + filename + "' from replicated_files to local_files.");
-
-            /*
-             * After promotion this node is the new logical owner.
-             * We immediately create a fresh backup replica on another surviving node.
-             * This is needed because the old replica was moved into local_files.
-             */
             nodeState.addOrUpdateOwnedFile(filename);
-            replicatePromotedLocalFileToBackupNode(filename, excludedNodeId);
-
             return true;
+
         } catch (Exception e) {
             System.err.println("[OWNERSHIP] Failed to promote replica '" + filename + "': " + e.getMessage());
             return false;
         }
     }
 
-    public boolean replicatePromotedLocalFileToBackupNode(String filename, int excludedNodeId) {
-        if (filename == null || filename.trim().isEmpty()) {
-            return false;
-        }
-
-        File localFile = new File(LOCAL_FOLDER + filename);
-        if (!localFile.exists() || !localFile.isFile()) {
-            System.out.println("[OWNERSHIP] Cannot create backup replica for '" + filename + "': local file missing.");
-            return false;
-        }
-
-        Map<Integer, String> topology = getTopology();
-
-        // Do not replicate the backup to ourselves.
-        topology.remove(nodeState.getCurrentID());
-
-        // During graceful shutdown, the leaving node may still be present in the Naming Server.
-        // Exclude it explicitly, otherwise we may try to replicate back to the node that is stopping.
-        if (excludedNodeId != -1) {
-            topology.remove(excludedNodeId);
-        }
-
-        if (topology.isEmpty()) {
-            System.out.println("[OWNERSHIP] No other surviving node available to replicate promoted file: " + filename);
-            return false;
-        }
-
-        Integer preferredNodeId = chooseBackupNodeId(filename, topology);
-
-        if (preferredNodeId != null) {
-            String preferredIp = topology.get(preferredNodeId);
-            if (tryReplicatePromotedFileToNode(filename, localFile, preferredNodeId, preferredIp)) {
-                return true;
-            }
-        }
-
-        // Fallback: try every other surviving node until one accepts the file.
-        for (Map.Entry<Integer, String> entry : topology.entrySet()) {
-            if (preferredNodeId != null && entry.getKey().equals(preferredNodeId)) {
-                continue;
-            }
-
-            if (tryReplicatePromotedFileToNode(filename, localFile, entry.getKey(), entry.getValue())) {
-                return true;
-            }
-        }
-
-        System.out.println("[OWNERSHIP] Could not create backup replica for promoted file: " + filename);
-        return false;
-    }
-
-    private Integer chooseBackupNodeId(String filename, Map<Integer, String> candidateTopology) {
-        if (candidateTopology == null || candidateTopology.isEmpty()) {
-            return null;
-        }
-
-        int fileHash = HashUtils.calculateHash(filename);
-        Integer selectedNodeId = null;
-
-        for (Integer nodeId : candidateTopology.keySet()) {
-            if (nodeId < fileHash) {
-                if (selectedNodeId == null || nodeId > selectedNodeId) {
-                    selectedNodeId = nodeId;
-                }
-            }
-        }
-
-        if (selectedNodeId == null) {
-            for (Integer nodeId : candidateTopology.keySet()) {
-                if (selectedNodeId == null || nodeId > selectedNodeId) {
-                    selectedNodeId = nodeId;
-                }
-            }
-        }
-
-        return selectedNodeId;
-    }
-
-    private boolean tryReplicatePromotedFileToNode(String filename, File localFile, int targetNodeId, String targetIp) {
-        if (targetIp == null || targetIp.trim().isEmpty()) {
-            return false;
-        }
-
-        if (targetIp.equals(nodeState.getIpAddress())) {
-            return false;
-        }
-
-        try {
-            if (remoteNodeHasFile(targetIp, filename)) {
-                System.out.println(
-                        "[OWNERSHIP] Backup replica for promoted file '" + filename +
-                                "' already exists on node " + targetNodeId
-                );
-                return true;
-            }
-
-            System.out.println(
-                    "[OWNERSHIP] Replicating promoted local file '" + filename +
-                            "' to backup node " + targetNodeId + " at " + targetIp
-            );
-
-            tcpService.sendFile(targetIp, localFile);
-            return true;
-
-        } catch (Exception e) {
-            System.err.println(
-                    "[OWNERSHIP] Failed to replicate promoted file '" + filename +
-                            "' to node " + targetNodeId + ": " + e.getMessage()
-            );
-            return false;
-        }
-    }
-
     public boolean requestPromotionOnNode(String filename, String targetIp) {
-        return requestPromotionOnNode(filename, targetIp, -1);
-    }
-
-    public boolean requestPromotionOnNode(String filename, String targetIp, int excludedNodeId) {
         if (filename == null || targetIp == null || targetIp.trim().isEmpty()) {
             return false;
         }
 
         try {
             Boolean result = restTemplate.postForObject(
-                    "http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename +
-                            "/promote?excludeNodeId=" + excludedNodeId,
+                    "http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename + "/promote",
                     null,
                     Boolean.class
             );
@@ -539,10 +493,69 @@ public class FileReplicationService {
             return result != null && result;
 
         } catch (Exception e) {
-            System.err.println("[OWNERSHIP] Could not request promotion of '" + filename +
-                    "' on node " + targetIp + ": " + e.getMessage());
+            System.err.println("[OWNERSHIP] Could not request promotion of '" + filename + "' on node " + targetIp + ": " + e.getMessage());
             return false;
         }
+    }
+
+    public boolean requestBackupReplicationOnNode(String filename, String ownerIp, int oldOwnerId) {
+        if (filename == null || ownerIp == null || ownerIp.trim().isEmpty()) {
+            return false;
+        }
+
+        try {
+            Boolean result = restTemplate.postForObject(
+                    "http://" + ownerIp + ":" + nodePort + "/api/node/files/" + filename + "/replicate-promoted?oldOwnerId=" + oldOwnerId,
+                    null,
+                    Boolean.class
+            );
+
+            return result != null && result;
+
+        } catch (Exception e) {
+            System.err.println("[OWNERSHIP] Could not request backup replication of '" + filename + "' on owner node " + ownerIp + ": " + e.getMessage());
+            return false;
+        }
+    }
+
+    public boolean replicatePromotedLocalFile(String filename, int oldOwnerId) {
+        File localFile = new File(LOCAL_FOLDER + filename);
+
+        if (!localFile.exists() || !localFile.isFile()) {
+            System.out.println("[OWNERSHIP] Cannot replicate promoted file. It is not in local_files: " + filename);
+            return false;
+        }
+
+        Set<Integer> excluded = new HashSet<>();
+        excluded.add(nodeState.getCurrentID());
+        excluded.add(oldOwnerId);
+
+        Map.Entry<Integer, String> backupTarget = getRingOwnerExcluding(filename, excluded);
+
+        if (backupTarget == null) {
+            System.out.println("[OWNERSHIP] No backup target available for promoted file '" + filename + "'. Probably only one surviving node.");
+            return false;
+        }
+
+        String backupIp = backupTarget.getValue();
+
+        if (backupIp == null || backupIp.equals(nodeState.getIpAddress())) {
+            return false;
+        }
+
+        if (remoteNodeHasFile(backupIp, filename)) {
+            System.out.println("[OWNERSHIP] Backup target already has '" + filename + "'. No duplicate transfer needed.");
+            return true;
+        }
+
+        System.out.println(
+                "[OWNERSHIP] Replicating promoted local file '" + filename +
+                        "' from owner " + nodeState.getCurrentID() +
+                        " to backup node " + backupTarget.getKey()
+        );
+
+        tcpService.sendFile(backupIp, localFile);
+        return true;
     }
 
     private boolean isValidFile(File file) {

@@ -5,6 +5,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 @Controller
@@ -19,17 +20,17 @@ public class GuiController {
     @GetMapping({"/", "/dashboard"})
     public String dashboard(
             @RequestParam(required = false) Integer selectedId,
+            @RequestParam(required = false) String editNode,
+            @RequestParam(required = false) String editLocation,
+            @RequestParam(required = false) String editFile,
             Model model
     ) {
-        model.addAttribute("view", guiService.buildDashboardView(selectedId));
+        model.addAttribute("view", guiService.buildDashboard(selectedId, editNode, editLocation, editFile));
         return "dashboard";
     }
 
     @PostMapping("/nodes/add")
-    public String addNode(
-            @RequestParam String nodeName,
-            RedirectAttributes redirectAttributes
-    ) {
+    public String addNode(@RequestParam String nodeName, RedirectAttributes redirectAttributes) {
         try {
             guiService.addNode(nodeName);
             redirectAttributes.addFlashAttribute("successMessage", "Node started: " + nodeName);
@@ -37,45 +38,31 @@ public class GuiController {
             redirectAttributes.addFlashAttribute("errorMessage", "Could not start node: " + e.getMessage());
         }
 
-        return "redirect:/dashboard";
+        return "redirect:/dashboard#nodes";
     }
 
     @PostMapping("/nodes/remove")
-    public String removeNode(
-            @RequestParam String nodeName,
-            RedirectAttributes redirectAttributes
-    ) {
+    public String removeNode(@RequestParam String nodeName, RedirectAttributes redirectAttributes) {
         try {
-            guiService.removeNode(nodeName);
-            redirectAttributes.addFlashAttribute("successMessage", "Node stopped: " + nodeName);
+            guiService.shutdownNode(nodeName);
+            redirectAttributes.addFlashAttribute("successMessage", "Graceful shutdown sent to node: " + nodeName);
         } catch (Exception e) {
-            redirectAttributes.addFlashAttribute("errorMessage", "Could not stop node: " + e.getMessage());
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not shutdown node: " + e.getMessage());
         }
 
-        return "redirect:/dashboard";
+        return "redirect:/dashboard#nodes";
     }
 
-    @PostMapping("/nodes/kill")
-    public String killNode(
-            @RequestParam String nodeName,
-            RedirectAttributes redirectAttributes
-    ) {
+    @PostMapping({"/nodes/kill", "/nodes/fail"})
+    public String killNode(@RequestParam String nodeName, RedirectAttributes redirectAttributes) {
         try {
             guiService.killNode(nodeName);
-            redirectAttributes.addFlashAttribute("successMessage", "Node killed as failure simulation: " + nodeName);
+            redirectAttributes.addFlashAttribute("successMessage", "Failure simulated for node: " + nodeName);
         } catch (Exception e) {
-            redirectAttributes.addFlashAttribute("errorMessage", "Could not kill node: " + e.getMessage());
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not simulate failure: " + e.getMessage());
         }
 
-        return "redirect:/dashboard";
-    }
-
-    @PostMapping("/nodes/fail")
-    public String failNodeAlias(
-            @RequestParam String nodeName,
-            RedirectAttributes redirectAttributes
-    ) {
-        return killNode(nodeName, redirectAttributes);
+        return "redirect:/dashboard#nodes";
     }
 
     @PostMapping("/nameserver/start")
@@ -102,20 +89,65 @@ public class GuiController {
         return "redirect:/dashboard";
     }
 
-    @PostMapping("/files/create")
-    public String createFile(
+    @PostMapping("/files/upload")
+    public String uploadFile(
             @RequestParam String nodeName,
-            @RequestParam String fileName,
-            @RequestParam(defaultValue = "") String content,
+            @RequestParam(required = false) Integer selectedId,
+            @RequestParam("file") MultipartFile file,
             RedirectAttributes redirectAttributes
     ) {
         try {
-            guiService.createFileOnNode(nodeName, fileName, content);
-            redirectAttributes.addFlashAttribute("successMessage", "File created on node " + nodeName + ": " + fileName);
+            guiService.uploadFileToNode(nodeName, file);
+            redirectAttributes.addFlashAttribute("successMessage", "Uploaded file to node " + nodeName + ": " + file.getOriginalFilename());
+            return redirectToSelected(selectedId, "details");
         } catch (Exception e) {
-            redirectAttributes.addFlashAttribute("errorMessage", "Could not create file: " + e.getMessage());
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not upload file: " + e.getMessage());
+            return redirectToSelected(selectedId, "details");
+        }
+    }
+
+    @PostMapping("/files/delete")
+    public String deleteFile(
+            @RequestParam String nodeName,
+            @RequestParam String fileName,
+            @RequestParam String location,
+            @RequestParam(required = false) Integer selectedId,
+            RedirectAttributes redirectAttributes
+    ) {
+        try {
+            guiService.deleteFileOnNode(nodeName, fileName, location);
+            redirectAttributes.addFlashAttribute("successMessage", "Deleted " + fileName + " from " + location + " files on " + nodeName + ".");
+            return redirectToSelected(selectedId, "details");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not delete file: " + e.getMessage());
+            return redirectToSelected(selectedId, "details");
+        }
+    }
+
+    @PostMapping("/files/update")
+    public String updateTextFile(
+            @RequestParam String nodeName,
+            @RequestParam String fileName,
+            @RequestParam String location,
+            @RequestParam String content,
+            @RequestParam(required = false) Integer selectedId,
+            RedirectAttributes redirectAttributes
+    ) {
+        try {
+            guiService.updateTextFileOnNode(nodeName, fileName, location, content);
+            redirectAttributes.addFlashAttribute("successMessage", "Updated text file: " + fileName);
+            return redirectToSelected(selectedId, "details");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not update text file: " + e.getMessage());
+            return redirectToSelected(selectedId, "details");
+        }
+    }
+
+    private String redirectToSelected(Integer selectedId, String anchor) {
+        if (selectedId == null) {
+            return "redirect:/dashboard#" + anchor;
         }
 
-        return "redirect:/dashboard";
+        return "redirect:/dashboard?selectedId=" + selectedId + "#" + anchor;
     }
 }

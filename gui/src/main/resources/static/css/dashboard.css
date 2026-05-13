@@ -143,7 +143,8 @@ tr:nth-child(odd) td {
     background: var(--panel-alt);
 }
 
-.inline-form {
+.inline-form,
+.upload-form {
     display: flex;
     gap: 10px;
     align-items: end;
@@ -151,24 +152,24 @@ tr:nth-child(odd) td {
 }
 
 .inline-form label,
-.create-file-form label {
-    display: block;
+.upload-form label {
     width: 100%;
     color: var(--main-color);
     font-weight: 700;
-    margin-bottom: 6px;
 }
 
-.form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-input {
+input, textarea {
     padding: 10px 12px;
     border: none;
     min-width: 230px;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+textarea {
+    width: 100%;
+    min-height: 240px;
+    resize: vertical;
+    border: 1px solid var(--panel-alt);
 }
 
 .button {
@@ -200,10 +201,8 @@ input {
 
 .badge {
     background: rgba(177, 0, 151, 0.12);
-    color: var(--main-color);
     padding: 8px 12px;
     border-radius: 999px;
-    font-weight: 700;
 }
 
 .status-online::after {
@@ -245,19 +244,6 @@ input {
     color: var(--main-color);
 }
 
-.file-groups {
-    margin-top: 26px;
-}
-
-.file-groups h3 {
-    margin-bottom: 10px;
-}
-
-.file-groups ul {
-    margin-top: 8px;
-    padding-left: 20px;
-}
-
 .server-actions {
     margin-top: 16px;
     display: flex;
@@ -265,255 +251,171 @@ input {
     flex-wrap: wrap;
 }
 
-.card-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 18px;
-    flex-wrap: wrap;
-}
-
-.centered-actions {
-    justify-content: center;
-}
-
-/* Interactive topology */
 .topology-panel {
     overflow: hidden;
 }
 
-.topology-helper {
-    color: var(--main-color);
-    margin: 6px 0 16px;
-    font-weight: 700;
-}
-
-.topology-data {
-    display: none;
-}
-
-.topology-visual {
-    position: relative;
-    height: 650px;
-    margin: 14px 0 28px;
-    background:
-        radial-gradient(circle at 50% 50%, rgba(177, 0, 151, 0.12), transparent 58%),
-        var(--panel-light);
-    border: 2px solid rgba(177, 0, 151, 0.18);
-    overflow: visible;
-}
-
-.topology-svg {
-    position: absolute;
-    inset: 0;
+.topology-wrapper {
     width: 100%;
-    height: 100%;
-    overflow: visible;
-    z-index: 1;
+    min-height: 560px;
+    margin-top: 14px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8eff6 100%);
+    border: 1px solid var(--panel-alt);
 }
 
-.topology-arrow {
-    fill: none;
-    stroke: var(--main-color);
-    stroke-width: 5;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    opacity: 0.82;
-    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+.topology-graph {
+    width: 100%;
+    height: 560px;
+    display: block;
 }
 
-.topology-arrow.highlighted {
-    stroke-width: 6.5;
-    opacity: 1;
-}
-
-.topology-arrow-head {
-    fill: var(--main-color);
-    opacity: 0.92;
-    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
-}
-
-.topology-arrow-head.highlighted {
-    opacity: 1;
-}
-
-.topology-nodes-layer {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-}
-
-.topology-dot {
-    position: absolute;
-    width: 74px;
-    height: 74px;
-    border-radius: 50%;
-    background: var(--main-color);
-    color: #ffffff;
-    transform: translate(-50%, -50%);
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-    padding: 10px;
+.topology-node {
     cursor: pointer;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-    border: 4px solid #ffffff;
-    transition: width 0.2s ease, height 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+    transition: opacity 0.2s ease;
 }
 
-.topology-dot .dot-name {
-    font-weight: 800;
-    font-size: 13px;
-    line-height: 1.05;
-    max-width: 120px;
-    word-break: break-word;
+.topology-node:hover {
+    opacity: 0.88;
 }
 
-.topology-dot .dot-id {
-    font-size: 11px;
-    opacity: 0.95;
-    margin-top: 4px;
-}
-
-.topology-dot.selected {
-    width: 148px;
-    height: 148px;
-    z-index: 6;
-    background: #08071f;
-    border-color: var(--warning);
-    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.42);
-}
-
-.topology-dot.selected .dot-name {
-    font-size: 18px;
-}
-
-.topology-dot.selected .dot-id {
-    font-size: 13px;
-}
-
-.topology-dot.neighbour {
-    width: 112px;
-    height: 112px;
-    z-index: 5;
-    background: #3b38a3;
-    border-color: #ffffff;
-}
-
-.topology-dot.neighbour .dot-name {
-    font-size: 15px;
-}
-
-.topology-dot:hover {
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
-}
-
-.topology-empty-selection {
-    text-align: center;
-    font-weight: 700;
-}
-
-.topology-focus-row {
+.topology-cards {
     display: grid;
-    grid-template-columns: minmax(180px, 0.85fr) minmax(340px, 1.4fr) minmax(180px, 0.85fr);
-    gap: 20px;
-    align-items: start;
+    grid-template-columns: minmax(190px, 0.8fr) minmax(300px, 1.25fr) minmax(190px, 0.8fr);
+    gap: 18px;
+    align-items: stretch;
     justify-content: center;
-    margin-top: 20px;
+    margin-top: 22px;
 }
 
-.focus-card {
+.topology-cards:has(.selected-node-card:only-child) {
+    grid-template-columns: minmax(340px, 560px);
+}
+
+.mini-node-card {
     background: var(--panel-light);
     padding: 18px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
     border: 2px solid transparent;
+    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
+}
+
+.selected-node-card {
+    transform: scale(1.04);
+    border-color: var(--main-color);
+    background: #ffffff;
 }
 
 .neighbour-card {
-    margin-top: 42px;
-    opacity: 0.96;
+    opacity: 0.95;
 }
 
-.selected-focus-card {
-    background: #ffffff;
-    border-color: var(--main-color);
-    transform: scale(1.02);
-    transform-origin: top center;
-    z-index: 2;
-}
-
-.focus-card h3 {
-    margin-bottom: 6px;
-}
-
-.focus-node-name {
-    margin: 0 0 16px;
+.node-name {
     color: var(--main-color);
-    font-weight: 900;
+    font-weight: 800;
     font-size: 20px;
+    margin: 0 0 12px;
 }
 
-.selected-focus-card .focus-node-name {
-    font-size: 26px;
+dl {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    gap: 8px;
+    margin: 0;
 }
 
-.selected-info-table {
-    margin-bottom: 14px;
+dt {
+    color: var(--text);
+    font-weight: 700;
 }
 
-.selected-file-details {
+dd {
+    margin: 0;
+}
+
+.card-actions,
+.centered-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.upload-box,
+.editor-box {
     margin-top: 24px;
-    padding-top: 20px;
-    border-top: 2px solid rgba(177, 0, 151, 0.12);
-}
-
-.create-file-box {
-    margin-top: 26px;
     padding: 16px;
     background: var(--panel-light);
 }
 
-.create-file-box h3 {
-    margin-top: 0;
+.editor-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
 }
 
-.create-file-form {
-    display: grid;
-    grid-template-columns: minmax(170px, 1fr) minmax(220px, 1.4fr) auto;
+.file-groups {
+    margin-top: 28px;
+}
+
+.file-groups ul {
+    margin-top: 8px;
+    padding-left: 0;
+}
+
+.file-action-list {
+    list-style: none;
+}
+
+.file-action-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     gap: 12px;
-    align-items: end;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: var(--panel-light);
 }
 
-.create-file-form input {
-    width: 100%;
-    min-width: 0;
+.file-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
-.create-file-button {
-    height: 39px;
-    white-space: nowrap;
+.file-actions form {
+    margin: 0;
+}
+
+.icon-button {
+    border: none;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    font-weight: 900;
+    cursor: pointer;
+    color: #ffffff;
+}
+
+.icon-button.edit {
+    background: #3b38a3;
+}
+
+.icon-button.delete {
+    background: var(--danger);
+    font-size: 20px;
+    line-height: 1;
 }
 
 @media (max-width: 1100px) {
-    .topology-focus-row {
+    .topology-cards {
         grid-template-columns: 1fr;
     }
 
-    .neighbour-card {
-        margin-top: 0;
-    }
-
-    .selected-focus-card {
+    .selected-node-card {
         transform: none;
-    }
-
-    .create-file-form {
-        grid-template-columns: 1fr;
-    }
-
-    .create-file-button {
-        width: fit-content;
     }
 }
 
@@ -532,7 +434,9 @@ input {
         grid-template-columns: 1fr;
     }
 
-    .topology-visual {
-        height: 460px;
+    .topology-wrapper,
+    .topology-graph {
+        min-height: 420px;
+        height: 420px;
     }
 }

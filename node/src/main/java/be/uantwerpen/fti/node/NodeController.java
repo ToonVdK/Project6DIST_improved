@@ -171,8 +171,11 @@ public class NodeController {
     }
 
     @PostMapping("/files/{filename}/promote")
-    public ResponseEntity<Boolean> promoteReplicaToLocal(@PathVariable String filename) {
-        boolean promoted = replicationService.promoteReplicaToLocal(filename);
+    public ResponseEntity<Boolean> promoteReplicaToLocal(
+            @PathVariable String filename,
+            @RequestParam(defaultValue = "-1") int excludeNodeId
+    ) {
+        boolean promoted = replicationService.promoteReplicaToLocal(filename, excludeNodeId);
 
         if (promoted) {
             nodeState.updateOwner(filename, nodeState.getCurrentID(), nodeState.getIpAddress());

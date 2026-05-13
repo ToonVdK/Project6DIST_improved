@@ -359,6 +359,10 @@ public class FileReplicationService {
     }
 
     public boolean promoteReplicaToLocal(String filename) {
+        return promoteReplicaToLocal(filename, -1);
+    }
+
+    public boolean promoteReplicaToLocal(String filename, int excludedNodeId) {
         if (filename == null || filename.trim().isEmpty()) {
             return false;
         }
@@ -374,6 +378,7 @@ public class FileReplicationService {
         if (localFile.exists() && localFile.isFile()) {
             System.out.println("[OWNERSHIP] File already exists in local_files: " + filename);
             nodeState.addOrUpdateOwnedFile(filename);
+            replicatePromotedLocalFileToBackupNode(filename, excludedNodeId);
             return true;
         }
 
@@ -385,7 +390,15 @@ public class FileReplicationService {
         try {
             Files.move(replicatedFile.toPath(), localFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
             System.out.println("[OWNERSHIP] Promoted '" + filename + "' from replicated_files to local_files.");
+
+            /*
+             * After promotion this node is the new logical owner.
+             * We immediately create a fresh backup replica on another surviving node.
+             * This is needed because the old replica was moved into local_files.
+             */
             nodeState.addOrUpdateOwnedFile(filename);
+            replicatePromotedLocalFileToBackupNode(filename, excludedNodeId);
+
             return true;
         } catch (Exception e) {
             System.err.println("[OWNERSHIP] Failed to promote replica '" + filename + "': " + e.getMessage());
@@ -393,14 +406,132 @@ public class FileReplicationService {
         }
     }
 
+    public boolean replicatePromotedLocalFileToBackupNode(String filename, int excludedNodeId) {
+        if (filename == null || filename.trim().isEmpty()) {
+            return false;
+        }
+
+        File localFile = new File(LOCAL_FOLDER + filename);
+        if (!localFile.exists() || !localFile.isFile()) {
+            System.out.println("[OWNERSHIP] Cannot create backup replica for '" + filename + "': local file missing.");
+            return false;
+        }
+
+        Map<Integer, String> topology = getTopology();
+
+        // Do not replicate the backup to ourselves.
+        topology.remove(nodeState.getCurrentID());
+
+        // During graceful shutdown, the leaving node may still be present in the Naming Server.
+        // Exclude it explicitly, otherwise we may try to replicate back to the node that is stopping.
+        if (excludedNodeId != -1) {
+            topology.remove(excludedNodeId);
+        }
+
+        if (topology.isEmpty()) {
+            System.out.println("[OWNERSHIP] No other surviving node available to replicate promoted file: " + filename);
+            return false;
+        }
+
+        Integer preferredNodeId = chooseBackupNodeId(filename, topology);
+
+        if (preferredNodeId != null) {
+            String preferredIp = topology.get(preferredNodeId);
+            if (tryReplicatePromotedFileToNode(filename, localFile, preferredNodeId, preferredIp)) {
+                return true;
+            }
+        }
+
+        // Fallback: try every other surviving node until one accepts the file.
+        for (Map.Entry<Integer, String> entry : topology.entrySet()) {
+            if (preferredNodeId != null && entry.getKey().equals(preferredNodeId)) {
+                continue;
+            }
+
+            if (tryReplicatePromotedFileToNode(filename, localFile, entry.getKey(), entry.getValue())) {
+                return true;
+            }
+        }
+
+        System.out.println("[OWNERSHIP] Could not create backup replica for promoted file: " + filename);
+        return false;
+    }
+
+    private Integer chooseBackupNodeId(String filename, Map<Integer, String> candidateTopology) {
+        if (candidateTopology == null || candidateTopology.isEmpty()) {
+            return null;
+        }
+
+        int fileHash = HashUtils.calculateHash(filename);
+        Integer selectedNodeId = null;
+
+        for (Integer nodeId : candidateTopology.keySet()) {
+            if (nodeId < fileHash) {
+                if (selectedNodeId == null || nodeId > selectedNodeId) {
+                    selectedNodeId = nodeId;
+                }
+            }
+        }
+
+        if (selectedNodeId == null) {
+            for (Integer nodeId : candidateTopology.keySet()) {
+                if (selectedNodeId == null || nodeId > selectedNodeId) {
+                    selectedNodeId = nodeId;
+                }
+            }
+        }
+
+        return selectedNodeId;
+    }
+
+    private boolean tryReplicatePromotedFileToNode(String filename, File localFile, int targetNodeId, String targetIp) {
+        if (targetIp == null || targetIp.trim().isEmpty()) {
+            return false;
+        }
+
+        if (targetIp.equals(nodeState.getIpAddress())) {
+            return false;
+        }
+
+        try {
+            if (remoteNodeHasFile(targetIp, filename)) {
+                System.out.println(
+                        "[OWNERSHIP] Backup replica for promoted file '" + filename +
+                                "' already exists on node " + targetNodeId
+                );
+                return true;
+            }
+
+            System.out.println(
+                    "[OWNERSHIP] Replicating promoted local file '" + filename +
+                            "' to backup node " + targetNodeId + " at " + targetIp
+            );
+
+            tcpService.sendFile(targetIp, localFile);
+            return true;
+
+        } catch (Exception e) {
+            System.err.println(
+                    "[OWNERSHIP] Failed to replicate promoted file '" + filename +
+                            "' to node " + targetNodeId + ": " + e.getMessage()
+            );
+            return false;
+        }
+    }
+
     public boolean requestPromotionOnNode(String filename, String targetIp) {
+        return requestPromotionOnNode(filename, targetIp, -1);
+    }
+
+    public boolean requestPromotionOnNode(String filename, String targetIp, int excludedNodeId) {
         if (filename == null || targetIp == null || targetIp.trim().isEmpty()) {
             return false;
         }
 
         try {
             Boolean result = restTemplate.postForObject(
-                    "http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename + "/promote",
+                    "http://" + targetIp + ":" + nodePort + "/api/node/files/" + filename +
+                            "/promote?excludeNodeId=" + excludedNodeId,
                     null,
                     Boolean.class
             );

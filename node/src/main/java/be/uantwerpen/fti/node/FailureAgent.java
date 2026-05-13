@@ -99,7 +99,7 @@ public class FailureAgent implements Runnable, Serializable {
             boolean currentNodeIsNewOwner = newOwnerIp.equals(nodeState.getIpAddress());
 
             if (currentNodeIsNewOwner) {
-                boolean promoted = replicationService.promoteReplicaToLocal(filename);
+                boolean promoted = replicationService.promoteReplicaToLocal(filename, failedNodeId);
 
                 if (promoted) {
                     System.out.println(
@@ -114,7 +114,7 @@ public class FailureAgent implements Runnable, Serializable {
                 }
 
             } else {
-                boolean promotedRemotely = replicationService.requestPromotionOnNode(filename, newOwnerIp);
+                boolean promotedRemotely = replicationService.requestPromotionOnNode(filename, newOwnerIp, failedNodeId);
 
                 if (promotedRemotely) {
                     System.out.println(
@@ -129,7 +129,7 @@ public class FailureAgent implements Runnable, Serializable {
                     );
 
                     replicationService.transferFileToNode(filename, newOwnerIp);
-                    replicationService.requestPromotionOnNode(filename, newOwnerIp);
+                    replicationService.requestPromotionOnNode(filename, newOwnerIp, failedNodeId);
 
                 } else {
                     System.out.println(

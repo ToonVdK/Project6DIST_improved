@@ -7,13 +7,10 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,8 +54,9 @@ public class GuiService {
         this.restTemplate = new RestTemplate(factory);
     }
 
-    public DashboardView buildDashboard(Integer selectedId, String editNode, String editLocation, String editFile) {
+    public DashboardView buildDashboard(Integer selectedId) {
         DashboardView view = new DashboardView();
+
         view.setNamingServerBaseUrl(namingServerBaseUrl);
         view.setDiscoveryEnabled(true);
 
@@ -85,6 +83,7 @@ public class GuiService {
 
             for (FileRow row : node.getKnownFiles()) {
                 String key = row.getFilename() + "|" + row.getOwnerId() + "|" + row.getDiscoveredOn();
+
                 if (globalFileKeys.add(key)) {
                     globalFiles.add(row);
                 }
@@ -106,26 +105,6 @@ public class GuiService {
             view.setNextNode(findNodeById(nodes, selected.getNextID()));
         }
 
-        if (editNode != null && editLocation != null && editFile != null) {
-            try {
-                EditFileView editFileView = new EditFileView();
-                editFileView.setNodeName(editNode);
-                editFileView.setLocation(editLocation);
-                editFileView.setFileName(editFile);
-                editFileView.setContent(readTextFileFromNode(editNode, editFile, editLocation));
-
-                Integer editSelectedId = selectedId;
-                if (editSelectedId == null && selected != null) {
-                    editSelectedId = selected.getId();
-                }
-                editFileView.setSelectedId(editSelectedId);
-
-                view.setEditFile(editFileView);
-            } catch (Exception e) {
-                view.setEditFileError("Could not open text file: " + e.getMessage());
-            }
-        }
-
         return view;
     }
 
@@ -144,13 +123,15 @@ public class GuiService {
 
     public void shutdownNode(String nodeName) {
         runCommand(List.of(
-                dockerCommand, "stop", containerNameForNode(nodeName)
+                dockerCommand, "stop",
+                containerNameForNode(nodeName)
         ));
     }
 
     public void killNode(String nodeName) {
         runCommand(List.of(
-                dockerCommand, "kill", containerNameForNode(nodeName)
+                dockerCommand, "kill",
+                containerNameForNode(nodeName)
         ));
     }
 
@@ -176,81 +157,58 @@ public class GuiService {
     }
 
     public void uploadFileToNode(String nodeName, MultipartFile file) {
-        if (file == null || file.getOriginalFilename() == null || file.getOriginalFilename().trim().isEmpty()) {
+        if (file == null) {
             throw new IllegalArgumentException("Please choose a file to upload.");
         }
 
-        try {
-            uploadFileToNode(nodeName, file.getOriginalFilename(), file.getBytes());
-        } catch (Exception e) {
-            throw new RuntimeException("Upload failed: " + e.getMessage(), e);
-        }
-    }
+        String originalName = file.getOriginalFilename();
 
-    public void uploadFileToNode(String nodeName, String originalFilename, byte[] bytes) {
-        String filename = sanitizeFileName(originalFilename);
-        if (filename.isBlank()) {
-            throw new IllegalArgumentException("Invalid file name.");
+        if (originalName == null || originalName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Please choose a file to upload.");
         }
 
+        String filename = sanitizeFileName(originalName);
         String containerName = containerNameForNode(nodeName);
-        Path temporaryDirectory = null;
-        Path temporaryFile = null;
+
+        Path tempFile = null;
 
         try {
-            /*
-             * Robust upload flow:
-             * 1. Store the browser upload as a temporary file inside the GUI container.
-             * 2. docker cp that temporary file into the selected node's /local_files.
-             *
-             * This works for text files, binary files and zero-byte files.
-             */
-            temporaryDirectory = Files.createTempDirectory("system-y-upload-");
-            temporaryFile = temporaryDirectory.resolve(filename);
-            Files.write(temporaryFile, bytes == null ? new byte[0] : bytes);
+            tempFile = Files.createTempFile("system-y-upload-", "-" + filename);
+            file.transferTo(tempFile);
 
             runCommand(List.of(
-                    dockerCommand,
-                    "exec",
+                    dockerCommand, "exec",
                     containerName,
-                    "sh",
-                    "-c",
+                    "sh", "-c",
                     "mkdir -p /local_files"
             ));
 
             runCommand(List.of(
-                    dockerCommand,
-                    "cp",
-                    temporaryFile.toAbsolutePath().toString(),
+                    dockerCommand, "cp",
+                    tempFile.toAbsolutePath().toString(),
                     containerName + ":/local_files/" + filename
             ));
 
             /*
              * Touch the file after docker cp so the node's DirectoryWatcherService
-             * sees a create/modify event and triggers replication.
+             * reliably sees an update event and triggers replication.
              */
             runCommand(List.of(
-                    dockerCommand,
-                    "exec",
+                    dockerCommand, "exec",
                     containerName,
-                    "sh",
-                    "-c",
-                    "touch /local_files/" + filename + " && test -f /local_files/" + filename
+                    "sh", "-c",
+                    "touch /local_files/" + filename
             ));
 
         } catch (Exception e) {
             throw new RuntimeException("Upload failed: " + e.getMessage(), e);
 
         } finally {
-            try {
-                if (temporaryFile != null) {
-                    Files.deleteIfExists(temporaryFile);
+            if (tempFile != null) {
+                try {
+                    Files.deleteIfExists(tempFile);
+                } catch (Exception ignored) {
                 }
-                if (temporaryDirectory != null) {
-                    Files.deleteIfExists(temporaryDirectory);
-                }
-            } catch (Exception ignored) {
-                // Cleanup failure should not hide the real upload result.
             }
         }
     }
@@ -260,57 +218,21 @@ public class GuiService {
         String folder = folderForLocation(location);
 
         runCommand(List.of(
-                dockerCommand,
-                "exec",
+                dockerCommand, "exec",
                 containerNameForNode(nodeName),
-                "sh",
-                "-c",
+                "sh", "-c",
                 "rm -f " + folder + "/" + filename
         ));
-    }
-
-    public String readTextFileFromNode(String nodeName, String fileName, String location) {
-        String filename = sanitizeFileName(fileName);
-        String folder = folderForLocation(location);
-
-        CommandResult result = runCommandForResult(List.of(
-                dockerCommand,
-                "exec",
-                containerNameForNode(nodeName),
-                "sh",
-                "-c",
-                "cat " + folder + "/" + filename
-        ));
-
-        return result.output();
-    }
-
-    public void updateTextFileOnNode(String nodeName, String fileName, String location, String content) {
-        String filename = sanitizeFileName(fileName);
-        writeBytesToNodeFile(nodeName, filename, location, content == null ? new byte[0] : content.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private void writeBytesToNodeFile(String nodeName, String filename, String location, byte[] bytes) {
-        String folder = folderForLocation(location);
-
-        runCommandWithInput(
-                List.of(
-                        dockerCommand,
-                        "exec",
-                        "-i",
-                        containerNameForNode(nodeName),
-                        "sh",
-                        "-c",
-                        "mkdir -p " + folder + " && cat > " + folder + "/" + filename
-                ),
-                bytes == null ? new byte[0] : bytes
-        );
     }
 
     @SuppressWarnings("unchecked")
     private Map<Integer, String> fetchTopology() {
         try {
-            Map<String, String> raw = restTemplate.getForObject(namingServerBaseUrl + "/topology", Map.class);
+            Map<String, String> raw = restTemplate.getForObject(
+                    namingServerBaseUrl + "/topology",
+                    Map.class
+            );
+
             Map<Integer, String> topology = new LinkedHashMap<>();
 
             if (raw == null) {
@@ -322,6 +244,7 @@ public class GuiService {
                     .forEach(e -> topology.put(Integer.parseInt(e.getKey()), e.getValue()));
 
             return topology;
+
         } catch (Exception e) {
             return null;
         }
@@ -330,6 +253,7 @@ public class GuiService {
     @SuppressWarnings("unchecked")
     private NodeView fetchNodeView(int nodeId, String nodeIp) {
         NodeView node = new NodeView();
+
         node.setId(nodeId);
         node.setIp(nodeIp);
         node.setName("node-" + nodeId);
@@ -342,7 +266,10 @@ public class GuiService {
         node.setKnownFiles(new ArrayList<>());
 
         try {
-            Map<String, Object> info = restTemplate.getForObject(nodeUrl(nodeIp) + "/info", Map.class);
+            Map<String, Object> info = restTemplate.getForObject(
+                    nodeUrl(nodeIp) + "/info",
+                    Map.class
+            );
 
             if (info != null) {
                 node.setOnline(true);
@@ -354,12 +281,17 @@ public class GuiService {
                 node.setNextID(asInt(info.get("nextID"), -1));
 
                 Object knownFilesRaw = info.get("knownFiles");
+
                 if (knownFilesRaw instanceof Map<?, ?> knownMap) {
                     node.setKnownFiles(parseKnownFiles(knownMap, node.getName()));
                 }
             }
 
-            Map<String, Object> physical = restTemplate.getForObject(nodeUrl(nodeIp) + "/files/physical", Map.class);
+            Map<String, Object> physical = restTemplate.getForObject(
+                    nodeUrl(nodeIp) + "/files/physical",
+                    Map.class
+            );
+
             if (physical != null) {
                 node.setLocalFiles(toStringList(physical.get("local")));
                 node.setReplicatedFiles(toStringList(physical.get("replicated")));
@@ -457,7 +389,9 @@ public class GuiService {
     }
 
     private String containerNameForNode(String nodeName) {
-        String safe = nodeName == null ? "" : nodeName.trim().toLowerCase().replaceAll("[^a-z0-9._-]", "-");
+        String safe = nodeName == null
+                ? ""
+                : nodeName.trim().toLowerCase().replaceAll("[^a-z0-9._-]", "-");
 
         if (safe.isBlank()) {
             throw new IllegalArgumentException("Invalid node name.");
@@ -471,7 +405,9 @@ public class GuiService {
     }
 
     private String sanitizeFileName(String fileName) {
-        String safe = fileName == null ? "" : fileName.trim().replaceAll("[^a-zA-Z0-9._-]", "_");
+        String safe = fileName == null
+                ? ""
+                : fileName.trim().replaceAll("[^a-zA-Z0-9._-]", "_");
 
         while (safe.startsWith(".")) {
             safe = safe.substring(1);
@@ -504,9 +440,11 @@ public class GuiService {
         if (value == null) {
             return defaultValue;
         }
+
         if (value instanceof Number number) {
             return number.intValue();
         }
+
         try {
             return Integer.parseInt(value.toString());
         } catch (NumberFormatException e) {
@@ -518,16 +456,22 @@ public class GuiService {
         if (value == null) {
             return defaultValue;
         }
+
         if (value instanceof Boolean bool) {
             return bool;
         }
+
         return Boolean.parseBoolean(value.toString());
     }
 
     private void runCommand(List<String> command) {
         CommandResult result = runCommandForResult(command);
+
         if (result.exitCode() != 0) {
-            throw new RuntimeException("Command failed with exit code " + result.exitCode() + ": " + result.output());
+            throw new RuntimeException(
+                    "Command failed with exit code " +
+                            result.exitCode() + ": " + result.output()
+            );
         }
     }
 
@@ -539,32 +483,11 @@ public class GuiService {
 
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             process.getInputStream().transferTo(outputStream);
+
             int exitCode = process.waitFor();
 
-            return new CommandResult(exitCode, outputStream.toString(StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            throw new RuntimeException(e.getMessage(), e);
-        }
-    }
+            return new CommandResult(exitCode, outputStream.toString());
 
-    private void runCommandWithInput(List<String> command, byte[] input) {
-        try {
-            Process process = new ProcessBuilder(command)
-                    .redirectErrorStream(true)
-                    .start();
-
-            try (OutputStream outputStream = process.getOutputStream()) {
-                outputStream.write(input);
-                outputStream.flush();
-            }
-
-            ByteArrayOutputStream processOutput = new ByteArrayOutputStream();
-            process.getInputStream().transferTo(processOutput);
-            int exitCode = process.waitFor();
-
-            if (exitCode != 0) {
-                throw new RuntimeException("Command failed with exit code " + exitCode + ": " + processOutput.toString(StandardCharsets.UTF_8));
-            }
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -583,31 +506,78 @@ public class GuiService {
         private NodeView previousNode;
         private NodeView nextNode;
         private List<FileRow> globalKnownFiles = new ArrayList<>();
-        private EditFileView editFile;
-        private String editFileError;
 
-        public boolean isNamingServerOnline() { return namingServerOnline; }
-        public void setNamingServerOnline(boolean namingServerOnline) { this.namingServerOnline = namingServerOnline; }
-        public String getNamingServerBaseUrl() { return namingServerBaseUrl; }
-        public void setNamingServerBaseUrl(String namingServerBaseUrl) { this.namingServerBaseUrl = namingServerBaseUrl; }
-        public boolean isDiscoveryEnabled() { return discoveryEnabled; }
-        public void setDiscoveryEnabled(boolean discoveryEnabled) { this.discoveryEnabled = discoveryEnabled; }
-        public int getNodeCount() { return nodeCount; }
-        public void setNodeCount(int nodeCount) { this.nodeCount = nodeCount; }
-        public List<NodeView> getNodes() { return nodes; }
-        public void setNodes(List<NodeView> nodes) { this.nodes = nodes; }
-        public NodeView getSelectedNode() { return selectedNode; }
-        public void setSelectedNode(NodeView selectedNode) { this.selectedNode = selectedNode; }
-        public NodeView getPreviousNode() { return previousNode; }
-        public void setPreviousNode(NodeView previousNode) { this.previousNode = previousNode; }
-        public NodeView getNextNode() { return nextNode; }
-        public void setNextNode(NodeView nextNode) { this.nextNode = nextNode; }
-        public List<FileRow> getGlobalKnownFiles() { return globalKnownFiles; }
-        public void setGlobalKnownFiles(List<FileRow> globalKnownFiles) { this.globalKnownFiles = globalKnownFiles; }
-        public EditFileView getEditFile() { return editFile; }
-        public void setEditFile(EditFileView editFile) { this.editFile = editFile; }
-        public String getEditFileError() { return editFileError; }
-        public void setEditFileError(String editFileError) { this.editFileError = editFileError; }
+        public boolean isNamingServerOnline() {
+            return namingServerOnline;
+        }
+
+        public void setNamingServerOnline(boolean namingServerOnline) {
+            this.namingServerOnline = namingServerOnline;
+        }
+
+        public String getNamingServerBaseUrl() {
+            return namingServerBaseUrl;
+        }
+
+        public void setNamingServerBaseUrl(String namingServerBaseUrl) {
+            this.namingServerBaseUrl = namingServerBaseUrl;
+        }
+
+        public boolean isDiscoveryEnabled() {
+            return discoveryEnabled;
+        }
+
+        public void setDiscoveryEnabled(boolean discoveryEnabled) {
+            this.discoveryEnabled = discoveryEnabled;
+        }
+
+        public int getNodeCount() {
+            return nodeCount;
+        }
+
+        public void setNodeCount(int nodeCount) {
+            this.nodeCount = nodeCount;
+        }
+
+        public List<NodeView> getNodes() {
+            return nodes;
+        }
+
+        public void setNodes(List<NodeView> nodes) {
+            this.nodes = nodes;
+        }
+
+        public NodeView getSelectedNode() {
+            return selectedNode;
+        }
+
+        public void setSelectedNode(NodeView selectedNode) {
+            this.selectedNode = selectedNode;
+        }
+
+        public NodeView getPreviousNode() {
+            return previousNode;
+        }
+
+        public void setPreviousNode(NodeView previousNode) {
+            this.previousNode = previousNode;
+        }
+
+        public NodeView getNextNode() {
+            return nextNode;
+        }
+
+        public void setNextNode(NodeView nextNode) {
+            this.nextNode = nextNode;
+        }
+
+        public List<FileRow> getGlobalKnownFiles() {
+            return globalKnownFiles;
+        }
+
+        public void setGlobalKnownFiles(List<FileRow> globalKnownFiles) {
+            this.globalKnownFiles = globalKnownFiles;
+        }
     }
 
     public static class NodeView {
@@ -622,26 +592,85 @@ public class GuiService {
         private List<String> replicatedFiles = new ArrayList<>();
         private List<FileRow> knownFiles = new ArrayList<>();
 
-        public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
-        public int getId() { return id; }
-        public void setId(int id) { this.id = id; }
-        public String getIp() { return ip; }
-        public void setIp(String ip) { this.ip = ip; }
-        public boolean isOnline() { return online; }
-        public void setOnline(boolean online) { this.online = online; }
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
-        public int getPreviousID() { return previousID; }
-        public void setPreviousID(int previousID) { this.previousID = previousID; }
-        public int getNextID() { return nextID; }
-        public void setNextID(int nextID) { this.nextID = nextID; }
-        public List<String> getLocalFiles() { return localFiles; }
-        public void setLocalFiles(List<String> localFiles) { this.localFiles = localFiles; }
-        public List<String> getReplicatedFiles() { return replicatedFiles; }
-        public void setReplicatedFiles(List<String> replicatedFiles) { this.replicatedFiles = replicatedFiles; }
-        public List<FileRow> getKnownFiles() { return knownFiles; }
-        public void setKnownFiles(List<FileRow> knownFiles) { this.knownFiles = knownFiles; }
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public int getId() {
+            return id;
+        }
+
+        public void setId(int id) {
+            this.id = id;
+        }
+
+        public String getIp() {
+            return ip;
+        }
+
+        public void setIp(String ip) {
+            this.ip = ip;
+        }
+
+        public boolean isOnline() {
+            return online;
+        }
+
+        public void setOnline(boolean online) {
+            this.online = online;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public int getPreviousID() {
+            return previousID;
+        }
+
+        public void setPreviousID(int previousID) {
+            this.previousID = previousID;
+        }
+
+        public int getNextID() {
+            return nextID;
+        }
+
+        public void setNextID(int nextID) {
+            this.nextID = nextID;
+        }
+
+        public List<String> getLocalFiles() {
+            return localFiles;
+        }
+
+        public void setLocalFiles(List<String> localFiles) {
+            this.localFiles = localFiles;
+        }
+
+        public List<String> getReplicatedFiles() {
+            return replicatedFiles;
+        }
+
+        public void setReplicatedFiles(List<String> replicatedFiles) {
+            this.replicatedFiles = replicatedFiles;
+        }
+
+        public List<FileRow> getKnownFiles() {
+            return knownFiles;
+        }
+
+        public void setKnownFiles(List<FileRow> knownFiles) {
+            this.knownFiles = knownFiles;
+        }
     }
 
     public static class FileRow {
@@ -652,36 +681,52 @@ public class GuiService {
         private boolean locked;
         private String discoveredOn;
 
-        public String getFilename() { return filename; }
-        public void setFilename(String filename) { this.filename = filename; }
-        public int getOwnerId() { return ownerId; }
-        public void setOwnerId(int ownerId) { this.ownerId = ownerId; }
-        public String getOwnerIp() { return ownerIp; }
-        public void setOwnerIp(String ownerIp) { this.ownerIp = ownerIp; }
-        public String getLastKnownLocationIp() { return lastKnownLocationIp; }
-        public void setLastKnownLocationIp(String lastKnownLocationIp) { this.lastKnownLocationIp = lastKnownLocationIp; }
-        public boolean isLocked() { return locked; }
-        public void setLocked(boolean locked) { this.locked = locked; }
-        public String getDiscoveredOn() { return discoveredOn; }
-        public void setDiscoveredOn(String discoveredOn) { this.discoveredOn = discoveredOn; }
-    }
+        public String getFilename() {
+            return filename;
+        }
 
-    public static class EditFileView {
-        private String nodeName;
-        private String fileName;
-        private String location;
-        private String content;
-        private Integer selectedId;
+        public void setFilename(String filename) {
+            this.filename = filename;
+        }
 
-        public String getNodeName() { return nodeName; }
-        public void setNodeName(String nodeName) { this.nodeName = nodeName; }
-        public String getFileName() { return fileName; }
-        public void setFileName(String fileName) { this.fileName = fileName; }
-        public String getLocation() { return location; }
-        public void setLocation(String location) { this.location = location; }
-        public String getContent() { return content; }
-        public void setContent(String content) { this.content = content; }
-        public Integer getSelectedId() { return selectedId; }
-        public void setSelectedId(Integer selectedId) { this.selectedId = selectedId; }
+        public int getOwnerId() {
+            return ownerId;
+        }
+
+        public void setOwnerId(int ownerId) {
+            this.ownerId = ownerId;
+        }
+
+        public String getOwnerIp() {
+            return ownerIp;
+        }
+
+        public void setOwnerIp(String ownerIp) {
+            this.ownerIp = ownerIp;
+        }
+
+        public String getLastKnownLocationIp() {
+            return lastKnownLocationIp;
+        }
+
+        public void setLastKnownLocationIp(String lastKnownLocationIp) {
+            this.lastKnownLocationIp = lastKnownLocationIp;
+        }
+
+        public boolean isLocked() {
+            return locked;
+        }
+
+        public void setLocked(boolean locked) {
+            this.locked = locked;
+        }
+
+        public String getDiscoveredOn() {
+            return discoveredOn;
+        }
+
+        public void setDiscoveredOn(String discoveredOn) {
+            this.discoveredOn = discoveredOn;
+        }
     }
 }

@@ -11,6 +11,7 @@
         <div><img class="ua-box" th:src="@{/fti.png}" alt="fti logo"></div>
         <h2>MENU</h2>
         <a href="#dashboard">Dashboard</a>
+        <a href="#topology">Topology</a>
         <a href="#nodes">Nodes</a>
         <a href="#files">Files</a>
         <a href="#details">Details</a>
@@ -77,6 +78,35 @@
             </div>
         </section>
 
+        <section id="topology" class="panel topology-panel">
+            <div class="panel-title-row">
+                <h2>Network topology</h2>
+                <span class="badge" th:text="${view.nodeCount + ' node(s) in ring'}">0 nodes in ring</span>
+            </div>
+
+            <div th:if="${view.nodes.isEmpty()}" class="empty topology-empty">
+                No topology available. Start the nameserver and add nodes first.
+            </div>
+
+            <div th:if="${!view.nodes.isEmpty()}" class="topology-wrapper">
+                <div id="topologyGraph" class="topology-graph" aria-label="System Y ring topology">
+                    <svg id="topologySvg" class="topology-svg"></svg>
+                    <div id="topologyNodesLayer" class="topology-nodes-layer"></div>
+                </div>
+
+                <div id="topologyData" class="topology-data" aria-hidden="true">
+                    <div class="graph-node-data"
+                         th:each="node : ${view.nodes}"
+                         th:attr="data-id=${node.id}, data-name=${node.name}, data-ip=${node.ip}, data-next=${node.nextID}, data-previous=${node.previousID}, data-online=${node.online}">
+                    </div>
+                </div>
+
+                <p class="hint topology-hint">
+                    The arrows show each node's nextID pointer in the System Y ring.
+                </p>
+            </div>
+        </section>
+
         <section id="nodes" class="panel">
             <div class="panel-title-row">
                 <h2>Nodes</h2>
@@ -103,14 +133,12 @@
 
                         <form method="post" action="/nodes/remove">
                             <input type="hidden" name="nodeName" th:value="${node.name}">
-                            <button class="button danger" type="submit"
-                                    title="Graceful shutdown: docker stop. The node gets time to run ShutdownService.">Shutdown</button>
+                            <button class="button danger" type="submit">Shutdown</button>
                         </form>
 
-                        <form method="post" action="/nodes/kill">
+                        <form method="post" action="/nodes/failure">
                             <input type="hidden" name="nodeName" th:value="${node.name}">
-                            <button class="button warning" type="submit"
-                                    title="Failure simulation: docker kill. The node is killed abruptly and other nodes must detect the failure.">Failure</button>
+                            <button class="button warning" type="submit">Failure</button>
                         </form>
                     </div>
                 </article>
@@ -228,5 +256,6 @@
         </section>
     </main>
 </div>
+<script th:src="@{/js/topology-graph.js}"></script>
 </body>
 </html>

@@ -99,10 +99,10 @@ public class GuiController {
         try {
             guiService.uploadFileToNode(nodeName, file);
             redirectAttributes.addFlashAttribute("successMessage", "Uploaded file to node " + nodeName + ": " + file.getOriginalFilename());
-            return redirectToSelected(selectedId, "details");
+            return redirectToSelected(selectedId, "nodes");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("errorMessage", "Could not upload file: " + e.getMessage());
-            return redirectToSelected(selectedId, "details");
+            return redirectToSelected(selectedId, "nodes");
         }
     }
 
@@ -117,10 +117,10 @@ public class GuiController {
         try {
             guiService.deleteFileOnNode(nodeName, fileName, location);
             redirectAttributes.addFlashAttribute("successMessage", "Deleted " + fileName + " from " + location + " files on " + nodeName + ".");
-            return redirectToSelected(selectedId, "details");
+            return redirectToSelected(selectedId, "nodes");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("errorMessage", "Could not delete file: " + e.getMessage());
-            return redirectToSelected(selectedId, "details");
+            return redirectToSelected(selectedId, "nodes");
         }
     }
 
@@ -136,10 +136,10 @@ public class GuiController {
         try {
             guiService.updateTextFileOnNode(nodeName, fileName, location, content);
             redirectAttributes.addFlashAttribute("successMessage", "Updated text file: " + fileName);
-            return redirectToSelected(selectedId, "details");
+            return redirectToSelected(selectedId, "nodes");
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("errorMessage", "Could not update text file: " + e.getMessage());
-            return redirectToSelected(selectedId, "details");
+            return redirectToSelected(selectedId, "nodes");
         }
     }
 

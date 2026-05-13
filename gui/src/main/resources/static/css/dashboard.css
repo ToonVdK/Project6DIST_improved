@@ -423,6 +423,16 @@ input {
     margin-top: 20px;
 }
 
+
+.topology-focus-row.single-node-focus {
+    grid-template-columns: minmax(360px, 640px);
+    justify-content: center;
+}
+
+.topology-focus-row.single-node-focus .selected-focus-card {
+    transform: scale(1.06);
+}
+
 .focus-card {
     background: var(--panel-light);
     padding: 18px;
@@ -642,4 +652,10 @@ textarea {
         display: grid;
         grid-template-columns: 1fr;
     }
+}
+
+
+.upload-form .button {
+    align-self: flex-end;
+    min-height: 40px;
 }

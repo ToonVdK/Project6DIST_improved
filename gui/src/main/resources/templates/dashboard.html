@@ -113,7 +113,8 @@
                     Please select a node to see its details.
                 </div>
 
-                <div th:if="${view.selectedNode != null}" class="topology-focus-row">
+                <div th:if="${view.selectedNode != null}" class="topology-focus-row"
+                     th:classappend="${view.nodeCount == 1} ? ' single-node-focus' : ''">
                     <article th:each="node : ${view.nodes}"
                              th:if="${node.id == view.selectedNode.previousID and node.id != view.selectedNode.id}"
                              class="focus-card neighbour-card">
@@ -168,7 +169,7 @@
                                     </div>
                                     <button type="submit" class="button secondary">Upload file</button>
                                 </form>
-                                <p class="hint">The uploaded file is placed in the selected node's local_files directory.</p>
+                                <p class="hint">The uploaded file is copied to the selected node's /local_files directory and then replicated automatically.</p>
                             </div>
 
                             <div th:if="${view.editFileError}" class="message error" th:text="${view.editFileError}"></div>

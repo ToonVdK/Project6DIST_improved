@@ -9,6 +9,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -183,10 +185,68 @@ public class GuiService {
             throw new IllegalArgumentException("Invalid file name.");
         }
 
+        String containerName = containerNameForNode(nodeName);
+        Path temporaryDirectory = null;
+        Path temporaryFile = null;
+
         try {
-            writeBytesToNodeFile(nodeName, filename, "local", file.getBytes());
+            /*
+             * Important fix:
+             * The previous upload implementation streamed the multipart bytes into
+             * `docker exec ... cat > /local_files/file`. That sometimes failed silently
+             * with browser uploads, especially for larger/binary files.
+             *
+             * This version first stores the uploaded file inside the GUI container,
+             * then uses `docker cp` to copy it into the selected node container.
+             * This is more robust and works for text files, PDFs, images, etc.
+             */
+            temporaryDirectory = Files.createTempDirectory("system-y-upload-");
+            temporaryFile = temporaryDirectory.resolve(filename);
+            file.transferTo(temporaryFile.toFile());
+
+            runCommand(List.of(
+                    dockerCommand,
+                    "exec",
+                    containerName,
+                    "sh",
+                    "-c",
+                    "mkdir -p /local_files"
+            ));
+
+            runCommand(List.of(
+                    dockerCommand,
+                    "cp",
+                    temporaryFile.toAbsolutePath().toString(),
+                    containerName + ":/local_files/" + filename
+            ));
+
+            /*
+             * Touch the file after docker cp. This makes sure Java WatchService
+             * sees a modify/create event and triggers replication.
+             */
+            runCommand(List.of(
+                    dockerCommand,
+                    "exec",
+                    containerName,
+                    "sh",
+                    "-c",
+                    "touch /local_files/" + filename + " && test -f /local_files/" + filename
+            ));
+
         } catch (Exception e) {
             throw new RuntimeException("Upload failed: " + e.getMessage(), e);
+
+        } finally {
+            try {
+                if (temporaryFile != null) {
+                    Files.deleteIfExists(temporaryFile);
+                }
+                if (temporaryDirectory != null) {
+                    Files.deleteIfExists(temporaryDirectory);
+                }
+            } catch (Exception ignored) {
+                // Cleanup failure should not hide the real upload result.
+            }
         }
     }
 

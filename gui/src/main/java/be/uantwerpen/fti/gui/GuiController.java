@@ -70,6 +70,14 @@ public class GuiController {
         return "redirect:/dashboard";
     }
 
+    @PostMapping("/nodes/fail")
+    public String failNodeAlias(
+            @RequestParam String nodeName,
+            RedirectAttributes redirectAttributes
+    ) {
+        return killNode(nodeName, redirectAttributes);
+    }
+
     @PostMapping("/nameserver/start")
     public String startNameserver(RedirectAttributes redirectAttributes) {
         try {

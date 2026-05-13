@@ -179,7 +179,6 @@ input {
     cursor: pointer;
     display: inline-block;
     font-weight: 700;
-    color: white;
 }
 
 .primary {
@@ -196,6 +195,7 @@ input {
 
 .warning {
     background: var(--warning);
+    color: #08071f;
 }
 
 .badge {
@@ -293,7 +293,7 @@ input {
 
 .topology-visual {
     position: relative;
-    height: 560px;
+    height: 650px;
     margin: 14px 0 28px;
     background:
         radial-gradient(circle at 50% 50%, rgba(177, 0, 151, 0.12), transparent 58%),
@@ -314,15 +314,25 @@ input {
 .topology-arrow {
     fill: none;
     stroke: var(--main-color);
-    stroke-width: 4.5;
+    stroke-width: 5;
     stroke-linecap: round;
     stroke-linejoin: round;
-    opacity: 0.9;
+    opacity: 0.82;
     filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
 }
 
 .topology-arrow.highlighted {
-    stroke-width: 6;
+    stroke-width: 6.5;
+    opacity: 1;
+}
+
+.topology-arrow-head {
+    fill: var(--main-color);
+    opacity: 0.92;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+
+.topology-arrow-head.highlighted {
     opacity: 1;
 }
 

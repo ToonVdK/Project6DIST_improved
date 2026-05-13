@@ -105,7 +105,7 @@
 
                 <div id="interactiveTopology" class="topology-visual"
                      th:attr="data-selected-id=${view.selectedNode != null ? view.selectedNode.id : ''}">
-                    <svg id="topologySvg" class="topology-svg" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg>
+                    <svg id="topologySvg" class="topology-svg" viewBox="0 0 1200 680" preserveAspectRatio="xMidYMid meet"></svg>
                     <div id="topologyNodesLayer" class="topology-nodes-layer"></div>
                 </div>
 
@@ -169,14 +169,12 @@
                         </table>
 
                         <div class="card-actions centered-actions">
-                            <a class="button secondary" th:href="@{/dashboard(selectedId=${view.selectedNode.id})}">Details</a>
-
                             <form method="post" action="/nodes/remove">
                                 <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
                                 <button class="button danger" type="submit">Shutdown</button>
                             </form>
 
-                            <form method="post" action="/nodes/fail">
+                            <form method="post" action="/nodes/kill">
                                 <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
                                 <button class="button warning" type="submit">Failure</button>
                             </form>

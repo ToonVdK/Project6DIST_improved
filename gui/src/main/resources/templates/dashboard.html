@@ -100,9 +100,17 @@
                     </dl>
                     <div class="card-actions">
                         <a class="button secondary" th:href="@{/dashboard(selectedId=${node.id})}">Details</a>
+
                         <form method="post" action="/nodes/remove">
                             <input type="hidden" name="nodeName" th:value="${node.name}">
-                            <button class="button danger" type="submit">Remove</button>
+                            <button class="button danger" type="submit"
+                                    title="Graceful shutdown: docker stop. The node gets time to run ShutdownService.">Shutdown</button>
+                        </form>
+
+                        <form method="post" action="/nodes/kill">
+                            <input type="hidden" name="nodeName" th:value="${node.name}">
+                            <button class="button warning" type="submit"
+                                    title="Failure simulation: docker kill. The node is killed abruptly and other nodes must detect the failure.">Failure</button>
                         </form>
                     </div>
                 </article>

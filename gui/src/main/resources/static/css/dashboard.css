@@ -213,7 +213,7 @@ input {
 }
 
 .primary {
-    background: var(--text);
+    background: var(--accent);
 }
 
 .secondary {
@@ -222,6 +222,11 @@ input {
 
 .danger {
     background: var(--danger);
+}
+
+.warning {
+    background: var(--warning);
+    color: #08071f;
 }
 
 .badge {

@@ -55,6 +55,21 @@ public class GuiController {
         return "redirect:/dashboard";
     }
 
+    @PostMapping("/nodes/kill")
+    public String killNode(
+            @RequestParam String nodeName,
+            RedirectAttributes redirectAttributes
+    ) {
+        try {
+            guiService.killNode(nodeName);
+            redirectAttributes.addFlashAttribute("successMessage", "Node killed as failure simulation: " + nodeName);
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not kill node: " + e.getMessage());
+        }
+
+        return "redirect:/dashboard";
+    }
+
     @PostMapping("/nameserver/start")
     public String startNameserver(RedirectAttributes redirectAttributes) {
         try {

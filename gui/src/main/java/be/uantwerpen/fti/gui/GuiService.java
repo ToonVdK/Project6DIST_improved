@@ -245,6 +245,17 @@ public class GuiService {
         ));
     }
 
+    public void killNode(String nodeName) {
+        String cleanedNodeName = sanitizeName(nodeName);
+        String containerName = nodeContainerPrefix + cleanedNodeName;
+
+        runCommand(List.of(
+                dockerCommand,
+                "kill",
+                containerName
+        ));
+    }
+
     public void startNameserver() {
         ensureDockerNetworkExists();
 

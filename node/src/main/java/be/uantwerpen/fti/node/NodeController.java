@@ -4,13 +4,7 @@ import be.uantwerpen.fti.common.HashUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
@@ -113,33 +107,47 @@ public class NodeController {
     }
 
     // ============================================================
-    // GUI endpoint: physical local and replicated files
+    // GUI helper endpoint
     // ============================================================
 
     @GetMapping("/files/physical")
-    public ResponseEntity<Map<String, List<String>>> getPhysicalFiles() {
-        Map<String, List<String>> result = new HashMap<>();
-        result.put("local", listFiles("local_files"));
-        result.put("replicated", listFiles("replicated_files"));
+    public ResponseEntity<Map<String, Object>> getPhysicalFiles() {
+        List<String> localFiles = listFilesFromFirstExistingDirectory("local_files", "/local_files", "/app/local_files");
+        List<String> replicatedFiles = listFilesFromFirstExistingDirectory("replicated_files", "/replicated_files", "/app/replicated_files");
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("local", localFiles);
+        result.put("replicated", replicatedFiles);
+
         return ResponseEntity.ok(result);
     }
 
-    private List<String> listFiles(String folderName) {
-        List<String> filenames = new ArrayList<>();
-        File folder = new File(folderName);
-        File[] files = folder.listFiles();
+    private List<String> listFilesFromFirstExistingDirectory(String... paths) {
+        List<String> result = new ArrayList<>();
 
-        if (files == null) {
-            return filenames;
-        }
+        for (String path : paths) {
+            File directory = new File(path);
 
-        for (File file : files) {
-            if (file.isFile() && !file.getName().startsWith(".") && !file.getName().endsWith("~")) {
-                filenames.add(file.getName());
+            if (!directory.exists() || !directory.isDirectory()) {
+                continue;
             }
+
+            File[] files = directory.listFiles();
+
+            if (files == null) {
+                return result;
+            }
+
+            for (File file : files) {
+                if (file.isFile()) {
+                    result.add(file.getName());
+                }
+            }
+
+            return result;
         }
 
-        return filenames;
+        return result;
     }
 
     // ============================================================

@@ -271,6 +271,28 @@ input {
     padding-left: 20px;
 }
 
+/* Extra GUI controls added without changing your colors/layout. */
+.server-actions {
+    margin-top: 16px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.create-file-box {
+    margin-top: 22px;
+    padding: 16px;
+    background: var(--panel-light);
+}
+
+.create-file-box h3 {
+    margin-top: 0;
+}
+
+.create-file-box input {
+    margin-bottom: 8px;
+}
+
 @media (max-width: 900px) {
     .layout {
         display: block;

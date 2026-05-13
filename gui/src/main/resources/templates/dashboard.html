@@ -54,6 +54,16 @@
                         </td>
                     </tr>
                 </table>
+
+                <div class="server-actions">
+                    <form method="post" action="/nameserver/start">
+                        <button type="submit" class="button secondary">Start nameserver</button>
+                    </form>
+
+                    <form method="post" action="/nameserver/stop">
+                        <button type="submit" class="button danger">Stop nameserver</button>
+                    </form>
+                </div>
             </div>
 
             <div class="panel">
@@ -156,6 +166,26 @@
                         <p th:if="${view.selectedNode.replicatedFiles.isEmpty()}" class="empty">No replicated files.</p>
                     </div>
                 </div>
+
+                <div class="create-file-box">
+                    <h3>Create local file on selected node</h3>
+
+                    <form class="inline-form" method="post" action="/files/create">
+                        <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
+
+                        <label for="fileName">File name</label>
+                        <input id="fileName" name="fileName" placeholder="example.txt" required>
+
+                        <label for="fileContent">Content</label>
+                        <input id="fileContent" name="content" placeholder="Hello from GUI">
+
+                        <button type="submit" class="button secondary">Create file</button>
+                    </form>
+
+                    <p class="hint">
+                        This creates a file in the selected node's local_files directory.
+                    </p>
+                </div>
             </div>
         </section>
 
@@ -169,7 +199,7 @@
                     <th>Owner IP</th>
                     <th>Last known location</th>
                     <th>Lock status</th>
-                    <th>Observed on</th>
+                    <th>Known by node</th>
                 </tr>
                 </thead>
                 <tbody>

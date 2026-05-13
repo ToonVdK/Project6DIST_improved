@@ -5,24 +5,16 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.InputStreamReader;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 @Service
 public class GuiService {
-
-    private final RestTemplate restTemplate;
 
     @Value("${gui.naming-server-base-url:http://localhost:8080/api}")
     private String namingServerBaseUrl;
@@ -42,36 +34,45 @@ public class GuiService {
     @Value("${gui.node-container-prefix:node-}")
     private String nodeContainerPrefix;
 
-    @Value("${gui.node-data-dir:./gui-data}")
-    private String nodeDataDir;
+    @Value("${gui.nameserver-container-name:naming-server}")
+    private String namingServerContainerName;
+
+    @Value("${gui.nameserver-image:naming-server-img}")
+    private String namingServerImage;
+
+    private final RestTemplate restTemplate;
 
     public GuiService() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(1500);
-        factory.setReadTimeout(2500);
+        factory.setConnectTimeout(2000);
+        factory.setReadTimeout(3000);
         this.restTemplate = new RestTemplate(factory);
     }
 
-    public DashboardView loadDashboard(Integer selectedId) {
+    public DashboardView buildDashboardView(Integer selectedId) {
         DashboardView view = new DashboardView();
         view.setNamingServerBaseUrl(namingServerBaseUrl);
-
-        TreeMap<Integer, String> topology = getTopology();
-        view.setTopology(topology);
-        view.setNamingServerOnline(true);
         view.setDiscoveryEnabled(true);
 
+        Map<Integer, String> topology = fetchTopology();
+        view.setNamingServerOnline(topology != null);
+
         List<NodeView> nodes = new ArrayList<>();
-        for (Map.Entry<Integer, String> entry : topology.entrySet()) {
-            nodes.add(loadNode(entry.getKey(), entry.getValue()));
+
+        if (topology != null) {
+            for (Map.Entry<Integer, String> entry : topology.entrySet()) {
+                NodeView node = fetchNode(entry.getKey(), entry.getValue());
+                nodes.add(node);
+            }
         }
 
+        nodes.sort(Comparator.comparingInt(NodeView::getId));
         view.setNodes(nodes);
         view.setNodeCount(nodes.size());
 
-        if (!nodes.isEmpty()) {
-            NodeView selected = null;
+        NodeView selected = null;
 
+        if (!nodes.isEmpty()) {
             if (selectedId != null) {
                 for (NodeView node : nodes) {
                     if (node.getId() == selectedId) {
@@ -84,312 +85,500 @@ public class GuiService {
             if (selected == null) {
                 selected = nodes.get(0);
             }
-
-            view.setSelectedNode(selected);
         }
 
+        view.setSelectedNode(selected);
         view.setGlobalKnownFiles(collectGlobalKnownFiles(nodes));
+
         return view;
     }
 
-    public String addNode(String nodeName) throws Exception {
-        String safeName = sanitizeNodeName(nodeName);
-        String containerName = nodeContainerPrefix + safeName.toLowerCase();
+    @SuppressWarnings("unchecked")
+    private Map<Integer, String> fetchTopology() {
+        try {
+            Map<String, String> raw = restTemplate.getForObject(
+                    namingServerBaseUrl + "/topology",
+                    Map.class
+            );
 
-        Path nodeDir = Path.of(nodeDataDir, containerName).toAbsolutePath();
-        Path localDir = nodeDir.resolve("local_files");
-        Path replicatedDir = nodeDir.resolve("replicated_files");
+            if (raw == null) {
+                return new LinkedHashMap<>();
+            }
 
-        Files.createDirectories(localDir);
-        Files.createDirectories(replicatedDir);
+            Map<Integer, String> result = new LinkedHashMap<>();
 
-        List<String> command = List.of(
+            for (Map.Entry<String, String> entry : raw.entrySet()) {
+                result.put(Integer.parseInt(entry.getKey()), entry.getValue());
+            }
+
+            return result;
+
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private NodeView fetchNode(int id, String ip) {
+        NodeView node = new NodeView();
+        node.setId(id);
+        node.setIp(ip);
+        node.setName("node-" + id);
+        node.setStatus("offline");
+        node.setOnline(false);
+
+        try {
+            String nodeBaseUrl = "http://" + ip + ":" + nodeApiPort + "/api/node";
+
+            Map<String, Object> info = restTemplate.getForObject(
+                    nodeBaseUrl + "/info",
+                    Map.class
+            );
+
+            if (info != null) {
+                node.setName(asString(info.get("name"), node.getName()));
+                node.setIp(asString(info.get("ip"), ip));
+                node.setId(asInt(info.get("currentID"), id));
+                node.setPreviousID(asInt(info.get("previousID"), -1));
+                node.setNextID(asInt(info.get("nextID"), -1));
+                node.setStatus("online");
+                node.setOnline(true);
+
+                Object knownFiles = info.get("knownFiles");
+                if (knownFiles instanceof Map<?, ?> knownMap) {
+                    Map<String, Object> normalized = new LinkedHashMap<>();
+
+                    for (Map.Entry<?, ?> entry : knownMap.entrySet()) {
+                        normalized.put(String.valueOf(entry.getKey()), entry.getValue());
+                    }
+
+                    node.setKnownFiles(normalized);
+                }
+            }
+
+            try {
+                Map<String, Object> physical = restTemplate.getForObject(
+                        nodeBaseUrl + "/files/physical",
+                        Map.class
+                );
+
+                if (physical != null) {
+                    node.setLocalFiles(toStringList(physical.get("local")));
+                    node.setReplicatedFiles(toStringList(physical.get("replicated")));
+                }
+
+            } catch (Exception ignored) {
+                // Older node image without /files/physical endpoint.
+            }
+
+        } catch (Exception e) {
+            node.setOnline(false);
+            node.setStatus("unreachable");
+        }
+
+        return node;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<KnownFileView> collectGlobalKnownFiles(List<NodeView> nodes) {
+        Map<String, KnownFileView> files = new LinkedHashMap<>();
+
+        for (NodeView node : nodes) {
+            Map<String, Object> knownFiles = node.getKnownFiles();
+
+            for (Map.Entry<String, Object> entry : knownFiles.entrySet()) {
+                String filename = entry.getKey();
+
+                if (files.containsKey(filename)) {
+                    continue;
+                }
+
+                KnownFileView file = new KnownFileView();
+                file.setFilename(filename);
+                file.setDiscoveredOn(node.getName());
+
+                Object rawInfo = entry.getValue();
+
+                if (rawInfo instanceof Map<?, ?> rawMap) {
+                    Map<String, Object> info = (Map<String, Object>) rawMap;
+                    file.setOwnerId(asInt(info.get("ownerId"), -1));
+                    file.setOwnerIp(asString(info.get("ownerIp"), "-"));
+                    file.setLastKnownLocationIp(asString(info.get("lastKnownLocationIp"), "-"));
+                    file.setLocked(asBoolean(info.get("locked"), false));
+                }
+
+                files.put(filename, file);
+            }
+        }
+
+        List<KnownFileView> result = new ArrayList<>(files.values());
+        result.sort(Comparator.comparing(KnownFileView::getFilename));
+        return result;
+    }
+
+    public void addNode(String nodeName) {
+        String cleanedNodeName = sanitizeName(nodeName);
+        String containerName = nodeContainerPrefix + cleanedNodeName;
+
+        ensureDockerNetworkExists();
+
+        runCommand(List.of(
                 dockerCommand,
                 "run",
                 "-d",
                 "--rm",
                 "--name", containerName,
                 "--network", dockerNetwork,
-                "-e", "NODE_NAME=" + safeName,
-                "-v", localDir + ":/local_files",
-                "-v", replicatedDir + ":/replicated_files",
+                "-e", "NODE_NAME=" + nodeName.trim(),
                 nodeImage
-        );
-
-        return runCommand(command);
+        ));
     }
 
-    public String removeNode(String nodeName) throws Exception {
-        String safeName = sanitizeNodeName(nodeName);
-        String containerName = nodeContainerPrefix + safeName.toLowerCase();
+    public void removeNode(String nodeName) {
+        String cleanedNodeName = sanitizeName(nodeName);
+        String containerName = nodeContainerPrefix + cleanedNodeName;
 
-        List<String> command = List.of(
+        runCommand(List.of(
                 dockerCommand,
                 "stop",
                 containerName
-        );
-
-        return runCommand(command);
+        ));
     }
 
-    @SuppressWarnings("unchecked")
-    private TreeMap<Integer, String> getTopology() {
-        try {
-            String url = trimSlash(namingServerBaseUrl) + "/topology";
-            Map<String, String> rawTopology = restTemplate.getForObject(url, Map.class);
-            TreeMap<Integer, String> topology = new TreeMap<>();
-
-            if (rawTopology == null) {
-                return topology;
-            }
-
-            for (Map.Entry<String, String> entry : rawTopology.entrySet()) {
-                topology.put(Integer.parseInt(entry.getKey()), entry.getValue());
-            }
-
-            return topology;
-        } catch (Exception e) {
-            return new TreeMap<>();
-        }
-    }
-
-    @SuppressWarnings("unchecked")
-    private NodeView loadNode(int id, String ip) {
-        NodeView node = new NodeView();
-        node.setId(id);
-        node.setIp(ip);
-        node.setOnline(false);
-        node.setStatus("offline");
-        node.setName("node-" + id);
-        node.setPreviousID(-1);
-        node.setNextID(-1);
-        node.setLocalFiles(Collections.emptyList());
-        node.setReplicatedFiles(Collections.emptyList());
-        node.setKnownFiles(Collections.emptyMap());
+    public void startNameserver() {
+        ensureDockerNetworkExists();
 
         try {
-            Map<String, Object> info = restTemplate.getForObject(nodeUrl(ip, "/api/node/info"), Map.class);
-
-            if (info != null) {
-                node.setOnline(true);
-                node.setStatus("online");
-                node.setName(asString(info.get("name"), node.getName()));
-                node.setIp(asString(info.get("ip"), ip));
-                node.setId(asInt(info.get("currentID"), id));
-                node.setPreviousID(asInt(info.get("previousID"), -1));
-                node.setNextID(asInt(info.get("nextID"), -1));
-
-                Object knownFiles = info.get("knownFiles");
-                if (knownFiles instanceof Map<?, ?> map) {
-                    node.setKnownFiles((Map<String, Object>) map);
-                }
-            }
-
-            Map<String, Object> physical = restTemplate.getForObject(nodeUrl(ip, "/api/node/files/physical"), Map.class);
-            if (physical != null) {
-                node.setLocalFiles(asStringList(physical.get("local")));
-                node.setReplicatedFiles(asStringList(physical.get("replicated")));
-            }
-
+            runCommand(List.of(
+                    dockerCommand,
+                    "start",
+                    namingServerContainerName
+            ));
+            return;
         } catch (Exception ignored) {
-            node.setOnline(false);
-            node.setStatus("offline");
+            // If the container does not exist, create a new one below.
         }
 
-        return node;
+        runCommand(List.of(
+                dockerCommand,
+                "run",
+                "-d",
+                "--rm",
+                "--name", namingServerContainerName,
+                "--network", dockerNetwork,
+                "-p", "8080:8080",
+                namingServerImage
+        ));
     }
 
-    private List<FileRow> collectGlobalKnownFiles(List<NodeView> nodes) {
-        Map<String, FileRow> rows = new LinkedHashMap<>();
-
-        for (NodeView node : nodes) {
-            for (Map.Entry<String, Object> entry : node.getKnownFiles().entrySet()) {
-                String filename = entry.getKey();
-
-                if (!rows.containsKey(filename)) {
-                    rows.put(filename, toFileRow(filename, entry.getValue(), node));
-                }
-            }
-        }
-
-        return new ArrayList<>(rows.values());
+    public void stopNameserver() {
+        runCommand(List.of(
+                dockerCommand,
+                "stop",
+                namingServerContainerName
+        ));
     }
 
-    @SuppressWarnings("unchecked")
-    private FileRow toFileRow(String filename, Object rawValue, NodeView discoveredOnNode) {
-        FileRow row = new FileRow();
-        row.setFilename(filename);
-        row.setDiscoveredOn(discoveredOnNode.getName());
-        row.setOwnerId(-1);
-        row.setOwnerIp("-");
-        row.setLastKnownLocationIp("-");
-        row.setLocked(false);
+    public void createFileOnNode(String nodeName, String fileName, String content) {
+        String cleanedNodeName = sanitizeName(nodeName);
+        String containerName = nodeContainerPrefix + cleanedNodeName;
 
-        if (rawValue instanceof Map<?, ?> rawMap) {
-            Map<String, Object> map = (Map<String, Object>) rawMap;
-            row.setFilename(asString(map.get("filename"), filename));
-            row.setOwnerId(asInt(map.get("ownerId"), -1));
-            row.setOwnerIp(asString(map.get("ownerIp"), "-"));
-            row.setLastKnownLocationIp(asString(map.get("lastKnownLocationIp"), "-"));
-            row.setLocked(asBoolean(map.get("locked"), false));
+        String safeFileName = fileName.replaceAll("[^a-zA-Z0-9._-]", "_");
+
+        if (safeFileName.isBlank()) {
+            throw new IllegalArgumentException("Invalid file name.");
         }
 
-        return row;
+        runCommandWithInput(
+                List.of(
+                        dockerCommand,
+                        "exec",
+                        "-i",
+                        containerName,
+                        "sh",
+                        "-c",
+                        "mkdir -p /local_files && cat > /local_files/" + safeFileName
+                ),
+                content == null ? "" : content
+        );
     }
 
-    private String runCommand(List<String> command) throws Exception {
-        ProcessBuilder processBuilder = new ProcessBuilder(command);
-        processBuilder.redirectErrorStream(true);
-
-        Process process = processBuilder.start();
-
-        String output;
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            output = reader.lines().collect(Collectors.joining("\n"));
-        }
-
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new IllegalStateException("Command failed with exit code " + exitCode + ": " + output);
-        }
-
-        if (output == null || output.trim().isEmpty()) {
-            return String.join(" ", command);
-        }
-
-        return output.trim();
-    }
-
-    private String sanitizeNodeName(String nodeName) {
-        if (nodeName == null || nodeName.trim().isEmpty()) {
-            throw new IllegalArgumentException("Node name cannot be empty");
-        }
-
-        String safeName = nodeName.trim().replaceAll("[^A-Za-z0-9_-]", "");
-        if (safeName.isEmpty()) {
-            throw new IllegalArgumentException("Node name must contain letters or numbers");
-        }
-
-        return safeName;
-    }
-
-    private String nodeUrl(String ip, String path) {
-        return "http://" + ip + ":" + nodeApiPort + path;
-    }
-
-    private String trimSlash(String value) {
-        if (value == null) {
-            return "";
-        }
-        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
-    }
-
-    private String asString(Object value, String fallback) {
-        return value == null ? fallback : value.toString();
-    }
-
-    private int asInt(Object value, int fallback) {
-        if (value == null) {
-            return fallback;
-        }
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
+    private void ensureDockerNetworkExists() {
         try {
-            return Integer.parseInt(value.toString());
-        } catch (NumberFormatException e) {
-            return fallback;
+            runCommand(List.of(
+                    dockerCommand,
+                    "network",
+                    "inspect",
+                    dockerNetwork
+            ));
+        } catch (Exception e) {
+            runCommand(List.of(
+                    dockerCommand,
+                    "network",
+                    "create",
+                    dockerNetwork
+            ));
         }
     }
 
-    private boolean asBoolean(Object value, boolean fallback) {
-        if (value == null) {
-            return fallback;
+    private void runCommand(List<String> command) {
+        try {
+            Process process = new ProcessBuilder(command)
+                    .redirectErrorStream(true)
+                    .start();
+
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int exitCode = process.waitFor();
+
+            if (exitCode != 0) {
+                throw new RuntimeException("Command failed with exit code " + exitCode + ": " + output);
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
         }
-        if (value instanceof Boolean bool) {
-            return bool;
-        }
-        return Boolean.parseBoolean(value.toString());
     }
 
-    private List<String> asStringList(Object value) {
-        if (!(value instanceof List<?> list)) {
-            return Collections.emptyList();
+    private void runCommandWithInput(List<String> command, String input) {
+        try {
+            Process process = new ProcessBuilder(command)
+                    .redirectErrorStream(true)
+                    .start();
+
+            try (OutputStream outputStream = process.getOutputStream()) {
+                outputStream.write(input.getBytes(StandardCharsets.UTF_8));
+                outputStream.flush();
+            }
+
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int exitCode = process.waitFor();
+
+            if (exitCode != 0) {
+                throw new RuntimeException("Command failed with exit code " + exitCode + ": " + output);
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException(e.getMessage(), e);
+        }
+    }
+
+    private String sanitizeName(String nodeName) {
+        if (nodeName == null || nodeName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Node name may not be empty.");
         }
 
+        return nodeName
+                .trim()
+                .toLowerCase()
+                .replaceAll("[^a-z0-9._-]", "-");
+    }
+
+    private List<String> toStringList(Object value) {
         List<String> result = new ArrayList<>();
-        for (Object item : list) {
-            if (item != null) {
-                result.add(item.toString());
+
+        if (value instanceof List<?> list) {
+            for (Object item : list) {
+                if (item != null) {
+                    result.add(String.valueOf(item));
+                }
             }
         }
 
         return result;
     }
 
+    private String asString(Object value, String defaultValue) {
+        return value == null ? defaultValue : String.valueOf(value);
+    }
+
+    private int asInt(Object value, int defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+
+        try {
+            return Integer.parseInt(value.toString());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private boolean asBoolean(Object value, boolean defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+
+        return Boolean.parseBoolean(value.toString());
+    }
+
     public static class DashboardView {
-        private String namingServerBaseUrl;
         private boolean namingServerOnline;
+        private String namingServerBaseUrl;
         private boolean discoveryEnabled;
         private int nodeCount;
-        private TreeMap<Integer, String> topology = new TreeMap<>();
         private List<NodeView> nodes = new ArrayList<>();
         private NodeView selectedNode;
-        private List<FileRow> globalKnownFiles = new ArrayList<>();
+        private List<KnownFileView> globalKnownFiles = new ArrayList<>();
 
-        public String getNamingServerBaseUrl() { return namingServerBaseUrl; }
-        public void setNamingServerBaseUrl(String namingServerBaseUrl) { this.namingServerBaseUrl = namingServerBaseUrl; }
-        public boolean isNamingServerOnline() { return namingServerOnline; }
-        public void setNamingServerOnline(boolean namingServerOnline) { this.namingServerOnline = namingServerOnline; }
-        public boolean isDiscoveryEnabled() { return discoveryEnabled; }
-        public void setDiscoveryEnabled(boolean discoveryEnabled) { this.discoveryEnabled = discoveryEnabled; }
-        public int getNodeCount() { return nodeCount; }
-        public void setNodeCount(int nodeCount) { this.nodeCount = nodeCount; }
-        public TreeMap<Integer, String> getTopology() { return topology; }
-        public void setTopology(TreeMap<Integer, String> topology) { this.topology = topology; }
-        public List<NodeView> getNodes() { return nodes; }
-        public void setNodes(List<NodeView> nodes) { this.nodes = nodes; }
-        public NodeView getSelectedNode() { return selectedNode; }
-        public void setSelectedNode(NodeView selectedNode) { this.selectedNode = selectedNode; }
-        public List<FileRow> getGlobalKnownFiles() { return globalKnownFiles; }
-        public void setGlobalKnownFiles(List<FileRow> globalKnownFiles) { this.globalKnownFiles = globalKnownFiles; }
+        public boolean isNamingServerOnline() {
+            return namingServerOnline;
+        }
+
+        public void setNamingServerOnline(boolean namingServerOnline) {
+            this.namingServerOnline = namingServerOnline;
+        }
+
+        public String getNamingServerBaseUrl() {
+            return namingServerBaseUrl;
+        }
+
+        public void setNamingServerBaseUrl(String namingServerBaseUrl) {
+            this.namingServerBaseUrl = namingServerBaseUrl;
+        }
+
+        public boolean isDiscoveryEnabled() {
+            return discoveryEnabled;
+        }
+
+        public void setDiscoveryEnabled(boolean discoveryEnabled) {
+            this.discoveryEnabled = discoveryEnabled;
+        }
+
+        public int getNodeCount() {
+            return nodeCount;
+        }
+
+        public void setNodeCount(int nodeCount) {
+            this.nodeCount = nodeCount;
+        }
+
+        public List<NodeView> getNodes() {
+            return nodes;
+        }
+
+        public void setNodes(List<NodeView> nodes) {
+            this.nodes = nodes;
+        }
+
+        public NodeView getSelectedNode() {
+            return selectedNode;
+        }
+
+        public void setSelectedNode(NodeView selectedNode) {
+            this.selectedNode = selectedNode;
+        }
+
+        public List<KnownFileView> getGlobalKnownFiles() {
+            return globalKnownFiles;
+        }
+
+        public void setGlobalKnownFiles(List<KnownFileView> globalKnownFiles) {
+            this.globalKnownFiles = globalKnownFiles;
+        }
     }
 
     public static class NodeView {
-        private String name;
         private int id;
+        private String name;
         private String ip;
-        private String status;
+        private int previousID = -1;
+        private int nextID = -1;
         private boolean online;
-        private int previousID;
-        private int nextID;
+        private String status = "unknown";
         private List<String> localFiles = new ArrayList<>();
         private List<String> replicatedFiles = new ArrayList<>();
-        private Map<String, Object> knownFiles = new HashMap<>();
+        private Map<String, Object> knownFiles = new LinkedHashMap<>();
 
-        public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
-        public int getId() { return id; }
-        public void setId(int id) { this.id = id; }
-        public String getIp() { return ip; }
-        public void setIp(String ip) { this.ip = ip; }
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
-        public boolean isOnline() { return online; }
-        public void setOnline(boolean online) { this.online = online; }
-        public int getPreviousID() { return previousID; }
-        public void setPreviousID(int previousID) { this.previousID = previousID; }
-        public int getNextID() { return nextID; }
-        public void setNextID(int nextID) { this.nextID = nextID; }
-        public List<String> getLocalFiles() { return localFiles; }
-        public void setLocalFiles(List<String> localFiles) { this.localFiles = localFiles; }
-        public List<String> getReplicatedFiles() { return replicatedFiles; }
-        public void setReplicatedFiles(List<String> replicatedFiles) { this.replicatedFiles = replicatedFiles; }
-        public Map<String, Object> getKnownFiles() { return knownFiles; }
-        public void setKnownFiles(Map<String, Object> knownFiles) { this.knownFiles = knownFiles; }
+        public int getId() {
+            return id;
+        }
+
+        public void setId(int id) {
+            this.id = id;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getIp() {
+            return ip;
+        }
+
+        public void setIp(String ip) {
+            this.ip = ip;
+        }
+
+        public int getPreviousID() {
+            return previousID;
+        }
+
+        public void setPreviousID(int previousID) {
+            this.previousID = previousID;
+        }
+
+        public int getNextID() {
+            return nextID;
+        }
+
+        public void setNextID(int nextID) {
+            this.nextID = nextID;
+        }
+
+        public boolean isOnline() {
+            return online;
+        }
+
+        public void setOnline(boolean online) {
+            this.online = online;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public List<String> getLocalFiles() {
+            return localFiles;
+        }
+
+        public void setLocalFiles(List<String> localFiles) {
+            this.localFiles = localFiles;
+        }
+
+        public List<String> getReplicatedFiles() {
+            return replicatedFiles;
+        }
+
+        public void setReplicatedFiles(List<String> replicatedFiles) {
+            this.replicatedFiles = replicatedFiles;
+        }
+
+        public Map<String, Object> getKnownFiles() {
+            return knownFiles;
+        }
+
+        public void setKnownFiles(Map<String, Object> knownFiles) {
+            this.knownFiles = knownFiles;
+        }
     }
 
-    public static class FileRow {
+    public static class KnownFileView {
         private String filename;
         private int ownerId;
         private String ownerIp;
@@ -397,17 +586,52 @@ public class GuiService {
         private boolean locked;
         private String discoveredOn;
 
-        public String getFilename() { return filename; }
-        public void setFilename(String filename) { this.filename = filename; }
-        public int getOwnerId() { return ownerId; }
-        public void setOwnerId(int ownerId) { this.ownerId = ownerId; }
-        public String getOwnerIp() { return ownerIp; }
-        public void setOwnerIp(String ownerIp) { this.ownerIp = ownerIp; }
-        public String getLastKnownLocationIp() { return lastKnownLocationIp; }
-        public void setLastKnownLocationIp(String lastKnownLocationIp) { this.lastKnownLocationIp = lastKnownLocationIp; }
-        public boolean isLocked() { return locked; }
-        public void setLocked(boolean locked) { this.locked = locked; }
-        public String getDiscoveredOn() { return discoveredOn; }
-        public void setDiscoveredOn(String discoveredOn) { this.discoveredOn = discoveredOn; }
+        public String getFilename() {
+            return filename;
+        }
+
+        public void setFilename(String filename) {
+            this.filename = filename;
+        }
+
+        public int getOwnerId() {
+            return ownerId;
+        }
+
+        public void setOwnerId(int ownerId) {
+            this.ownerId = ownerId;
+        }
+
+        public String getOwnerIp() {
+            return ownerIp;
+        }
+
+        public void setOwnerIp(String ownerIp) {
+            this.ownerIp = ownerIp;
+        }
+
+        public String getLastKnownLocationIp() {
+            return lastKnownLocationIp;
+        }
+
+        public void setLastKnownLocationIp(String lastKnownLocationIp) {
+            this.lastKnownLocationIp = lastKnownLocationIp;
+        }
+
+        public boolean isLocked() {
+            return locked;
+        }
+
+        public void setLocked(boolean locked) {
+            this.locked = locked;
+        }
+
+        public String getDiscoveredOn() {
+            return discoveredOn;
+        }
+
+        public void setDiscoveredOn(String discoveredOn) {
+            this.discoveredOn = discoveredOn;
+        }
     }
 }

@@ -18,21 +18,21 @@ public class GuiController {
 
     @GetMapping({"/", "/dashboard"})
     public String dashboard(
-            @RequestParam(value = "selectedId", required = false) Integer selectedId,
+            @RequestParam(required = false) Integer selectedId,
             Model model
     ) {
-        model.addAttribute("view", guiService.loadDashboard(selectedId));
+        model.addAttribute("view", guiService.buildDashboardView(selectedId));
         return "dashboard";
     }
 
     @PostMapping("/nodes/add")
     public String addNode(
-            @RequestParam("nodeName") String nodeName,
+            @RequestParam String nodeName,
             RedirectAttributes redirectAttributes
     ) {
         try {
-            String output = guiService.addNode(nodeName);
-            redirectAttributes.addFlashAttribute("successMessage", "Node started: " + output);
+            guiService.addNode(nodeName);
+            redirectAttributes.addFlashAttribute("successMessage", "Node started: " + nodeName);
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("errorMessage", "Could not start node: " + e.getMessage());
         }
@@ -42,14 +42,55 @@ public class GuiController {
 
     @PostMapping("/nodes/remove")
     public String removeNode(
-            @RequestParam("nodeName") String nodeName,
+            @RequestParam String nodeName,
             RedirectAttributes redirectAttributes
     ) {
         try {
-            String output = guiService.removeNode(nodeName);
-            redirectAttributes.addFlashAttribute("successMessage", "Node stopped: " + output);
+            guiService.removeNode(nodeName);
+            redirectAttributes.addFlashAttribute("successMessage", "Node stopped: " + nodeName);
         } catch (Exception e) {
             redirectAttributes.addFlashAttribute("errorMessage", "Could not stop node: " + e.getMessage());
+        }
+
+        return "redirect:/dashboard";
+    }
+
+    @PostMapping("/nameserver/start")
+    public String startNameserver(RedirectAttributes redirectAttributes) {
+        try {
+            guiService.startNameserver();
+            redirectAttributes.addFlashAttribute("successMessage", "Nameserver started.");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not start nameserver: " + e.getMessage());
+        }
+
+        return "redirect:/dashboard";
+    }
+
+    @PostMapping("/nameserver/stop")
+    public String stopNameserver(RedirectAttributes redirectAttributes) {
+        try {
+            guiService.stopNameserver();
+            redirectAttributes.addFlashAttribute("successMessage", "Nameserver stopped.");
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not stop nameserver: " + e.getMessage());
+        }
+
+        return "redirect:/dashboard";
+    }
+
+    @PostMapping("/files/create")
+    public String createFile(
+            @RequestParam String nodeName,
+            @RequestParam String fileName,
+            @RequestParam(defaultValue = "") String content,
+            RedirectAttributes redirectAttributes
+    ) {
+        try {
+            guiService.createFileOnNode(nodeName, fileName, content);
+            redirectAttributes.addFlashAttribute("successMessage", "File created on node " + nodeName + ": " + fileName);
+        } catch (Exception e) {
+            redirectAttributes.addFlashAttribute("errorMessage", "Could not create file: " + e.getMessage());
         }
 
         return "redirect:/dashboard";

@@ -176,11 +176,19 @@ public class GuiService {
     }
 
     public void uploadFileToNode(String nodeName, MultipartFile file) {
-        if (file == null || file.isEmpty()) {
+        if (file == null || file.getOriginalFilename() == null || file.getOriginalFilename().trim().isEmpty()) {
             throw new IllegalArgumentException("Please choose a file to upload.");
         }
 
-        String filename = sanitizeFileName(file.getOriginalFilename());
+        try {
+            uploadFileToNode(nodeName, file.getOriginalFilename(), file.getBytes());
+        } catch (Exception e) {
+            throw new RuntimeException("Upload failed: " + e.getMessage(), e);
+        }
+    }
+
+    public void uploadFileToNode(String nodeName, String originalFilename, byte[] bytes) {
+        String filename = sanitizeFileName(originalFilename);
         if (filename.isBlank()) {
             throw new IllegalArgumentException("Invalid file name.");
         }
@@ -191,18 +199,15 @@ public class GuiService {
 
         try {
             /*
-             * Important fix:
-             * The previous upload implementation streamed the multipart bytes into
-             * `docker exec ... cat > /local_files/file`. That sometimes failed silently
-             * with browser uploads, especially for larger/binary files.
+             * Robust upload flow:
+             * 1. Store the browser upload as a temporary file inside the GUI container.
+             * 2. docker cp that temporary file into the selected node's /local_files.
              *
-             * This version first stores the uploaded file inside the GUI container,
-             * then uses `docker cp` to copy it into the selected node container.
-             * This is more robust and works for text files, PDFs, images, etc.
+             * This works for text files, binary files and zero-byte files.
              */
             temporaryDirectory = Files.createTempDirectory("system-y-upload-");
             temporaryFile = temporaryDirectory.resolve(filename);
-            file.transferTo(temporaryFile.toFile());
+            Files.write(temporaryFile, bytes == null ? new byte[0] : bytes);
 
             runCommand(List.of(
                     dockerCommand,
@@ -221,8 +226,8 @@ public class GuiService {
             ));
 
             /*
-             * Touch the file after docker cp. This makes sure Java WatchService
-             * sees a modify/create event and triggers replication.
+             * Touch the file after docker cp so the node's DirectoryWatcherService
+             * sees a create/modify event and triggers replication.
              */
             runCommand(List.of(
                     dockerCommand,

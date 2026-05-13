@@ -1,6 +1,6 @@
 # deploy.ps1
-$sshKey = "C:\Users\dgam3\.ssh\virtua"
-$vmUser = "s0231046@143.129.43.68"
+$sshKey = "C:\Users\almaf\.ssh\netlab"
+$vmUser = "s0233689@143.129.43.69"
 
 echo "1. Make sure you ran Maven package in IntelliJ or with: mvn clean package -DskipTests"
 

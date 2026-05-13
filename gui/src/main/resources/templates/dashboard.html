@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>System Y Network Monitor</title>
     <link rel="stylesheet" th:href="@{/css/dashboard.css}">
+    <script defer th:src="@{/js/topology-graph.js}"></script>
 </head>
 <body>
 <div class="layout">
@@ -68,8 +69,10 @@
             <div class="panel">
                 <h2>Add node</h2>
                 <form class="inline-form" method="post" action="/nodes/add">
-                    <label for="nodeName">Node name</label>
-                    <input id="nodeName" name="nodeName" placeholder="Example: Gamma" required>
+                    <div class="form-group">
+                        <label for="nodeName">Node name</label>
+                        <input id="nodeName" name="nodeName" placeholder="Example: Gamma" required>
+                    </div>
                     <button type="submit" class="button primary">Add node</button>
                 </form>
                 <p class="hint">The GUI starts a new Docker container using the configured node image and network.</p>
@@ -82,11 +85,11 @@
                 <span class="badge" th:text="${view.nodeCount + ' active node(s)'}">0 active nodes</span>
             </div>
 
-            <p class="hint" th:if="${!view.nodes.isEmpty()}">
-                Click a node in the topology to select it. The selected node is enlarged, and its neighbours are highlighted.
-            </p>
+            <div th:if="${!view.nodes.isEmpty()}">
+                <div class="topology-helper">
+                    Click a node in the topology to select it. The selected node is enlarged, and its neighbours are highlighted.
+                </div>
 
-<<<<<<< Updated upstream
                 <div class="topology-data" aria-hidden="true">
                     <div class="topology-node-data"
                          th:each="node : ${view.nodes}"
@@ -169,26 +172,6 @@
                                 <p class="hint">The uploaded file is copied to the selected node's /local_files directory and then replicated automatically.</p>
                             </div>
 
-                            <div th:if="${view.editFileError}" class="message error" th:text="${view.editFileError}"></div>
-
-                            <div th:if="${view.editFile != null}" class="editor-box">
-                                <h3 th:text="${'Editing ' + view.editFile.fileName + ' on ' + view.editFile.nodeName}">Editing file</h3>
-                                <form method="post" action="/files/update">
-                                    <input type="hidden" name="nodeName" th:value="${view.editFile.nodeName}">
-                                    <input type="hidden" name="fileName" th:value="${view.editFile.fileName}">
-                                    <input type="hidden" name="location" th:value="${view.editFile.location}">
-                                    <input type="hidden" name="selectedId" th:value="${view.editFile.selectedId}">
-                                    <textarea name="content" th:text="${view.editFile.content}"></textarea>
-                                    <div class="editor-actions">
-                                        <button type="submit" class="button secondary">Save changes</button>
-                                        <a class="button danger"
-                                           th:href="@{/dashboard(selectedId=${view.editFile.selectedId})#nodes}">
-                                            Cancel
-                                        </a>
-                                    </div>
-                                </form>
-                            </div>
-
                             <div class="grid two-columns file-groups">
                                 <div>
                                     <h3>Local files</h3>
@@ -196,10 +179,6 @@
                                         <li th:each="file : ${view.selectedNode.localFiles}">
                                             <span th:text="${file}">file.txt</span>
                                             <div class="file-actions">
-                                                <a class="icon-button edit"
-                                                   th:if="${#strings.endsWith(#strings.toLowerCase(file), '.txt')}"
-                                                   th:href="@{/dashboard(selectedId=${view.selectedNode.id}, editNode=${view.selectedNode.name}, editLocation='local', editFile=${file})#nodes}"
-                                                   title="Edit text file">✎</a>
                                                 <form method="post" action="/files/delete">
                                                     <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
                                                     <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
@@ -250,160 +229,9 @@
                         </table>
                     </article>
                 </div>
-=======
-            <div class="topology-data" aria-hidden="true">
-                <span class="topology-node-data"
-                      th:each="node : ${view.nodes}"
-                      th:data-id="${node.id}"
-                      th:data-name="${node.name}"
-                      th:data-ip="${node.ip}"
-                      th:data-status="${node.status}"
-                      th:data-online="${node.online}"
-                      th:data-previous-id="${node.previousID}"
-                      th:data-next-id="${node.nextID}"
-                      th:data-selected="${view.selectedNode != null and node.id == view.selectedNode.id}">
-                </span>
->>>>>>> Stashed changes
             </div>
 
-            <div th:if="${!view.nodes.isEmpty()}"
-                 id="interactiveTopology"
-                 class="interactive-topology"
-                 th:data-selected-id="${view.selectedNode != null ? view.selectedNode.id : ''}">
-                <svg id="topologySvg" class="topology-svg" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet"></svg>
-                <div id="topologyNodesLayer" class="topology-nodes-layer"></div>
-            </div>
-
-            <div th:if="${view.nodes.isEmpty()}" class="empty">
-                No nodes are currently registered in the Naming Server.
-            </div>
-
-            <div th:if="${view.selectedNode == null and !view.nodes.isEmpty()}" class="empty">
-                Please select a node to see its details.
-            </div>
-
-            <div th:if="${view.selectedNode != null}" class="topology-focus-row">
-                <article class="focus-card neighbour-card" th:if="${view.previousNode != null}">
-                    <h3>Previous neighbour</h3>
-                    <h4 th:text="${view.previousNode.name}">node</h4>
-                    <dl>
-                        <dt>Node ID</dt>
-                        <dd th:text="${view.previousNode.id}">0</dd>
-                        <dt>IP</dt>
-                        <dd th:text="${view.previousNode.ip}">0.0.0.0</dd>
-                        <dt>Status</dt>
-                        <dd>
-                            <span th:class="${view.previousNode.online} ? 'status-online' : 'status-offline'"
-                                  th:text="${view.previousNode.status}">online</span>
-                        </dd>
-                    </dl>
-                </article>
-
-                <article class="focus-card selected-focus-card">
-                    <h3>Selected node</h3>
-                    <h4 th:text="${view.selectedNode.name}">node</h4>
-
-                    <dl>
-                        <dt>Node ID</dt>
-                        <dd th:text="${view.selectedNode.id}">0</dd>
-                        <dt>IP</dt>
-                        <dd th:text="${view.selectedNode.ip}">0.0.0.0</dd>
-                        <dt>Status</dt>
-                        <dd>
-                            <span th:class="${view.selectedNode.online} ? 'status-online' : 'status-offline'"
-                                  th:text="${view.selectedNode.status}">online</span>
-                        </dd>
-                        <dt>Previous ID</dt>
-                        <dd th:text="${view.selectedNode.previousID}">-</dd>
-                        <dt>Next ID</dt>
-                        <dd th:text="${view.selectedNode.nextID}">-</dd>
-                    </dl>
-
-                    <div class="card-actions selected-actions">
-                        <form method="post" action="/nodes/remove">
-                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                            <button class="button warning" type="submit">Shutdown</button>
-                        </form>
-
-                        <form method="post" action="/nodes/kill">
-                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                            <button class="button danger" type="submit">Failure</button>
-                        </form>
-                    </div>
-
-                    <div class="upload-file-box">
-                        <h3>Upload local file to selected node</h3>
-
-                        <form class="upload-form" method="post" action="/files/upload" enctype="multipart/form-data">
-                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                            <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
-
-                            <label for="file">Choose file</label>
-                            <input id="file" type="file" name="file" required>
-
-                            <button type="submit" class="button secondary">Upload file</button>
-                        </form>
-
-                        <p class="hint">
-                            The uploaded file is copied to the selected node's /local_files directory and then replicated automatically.
-                        </p>
-                    </div>
-
-                    <div class="grid two-columns file-groups">
-                        <div>
-                            <h3>Local files</h3>
-                            <ul class="file-action-list" th:if="${!view.selectedNode.localFiles.isEmpty()}">
-                                <li th:each="fileName : ${view.selectedNode.localFiles}">
-                                    <span th:text="${fileName}">file.txt</span>
-
-                                    <form method="post" action="/files/delete" class="icon-form">
-                                        <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                                        <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
-                                        <input type="hidden" name="fileName" th:value="${fileName}">
-                                        <input type="hidden" name="location" value="local">
-                                        <button type="submit" class="icon-button delete" title="Delete file">×</button>
-                                    </form>
-                                </li>
-                            </ul>
-                            <p th:if="${view.selectedNode.localFiles.isEmpty()}" class="empty">No local files.</p>
-                        </div>
-
-                        <div>
-                            <h3>Replicated files</h3>
-                            <ul class="file-action-list" th:if="${!view.selectedNode.replicatedFiles.isEmpty()}">
-                                <li th:each="fileName : ${view.selectedNode.replicatedFiles}">
-                                    <span th:text="${fileName}">file.txt</span>
-
-                                    <form method="post" action="/files/delete" class="icon-form">
-                                        <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                                        <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
-                                        <input type="hidden" name="fileName" th:value="${fileName}">
-                                        <input type="hidden" name="location" value="replicated">
-                                        <button type="submit" class="icon-button delete" title="Delete file">×</button>
-                                    </form>
-                                </li>
-                            </ul>
-                            <p th:if="${view.selectedNode.replicatedFiles.isEmpty()}" class="empty">No replicated files.</p>
-                        </div>
-                    </div>
-                </article>
-
-                <article class="focus-card neighbour-card" th:if="${view.nextNode != null}">
-                    <h3>Next neighbour</h3>
-                    <h4 th:text="${view.nextNode.name}">node</h4>
-                    <dl>
-                        <dt>Node ID</dt>
-                        <dd th:text="${view.nextNode.id}">0</dd>
-                        <dt>IP</dt>
-                        <dd th:text="${view.nextNode.ip}">0.0.0.0</dd>
-                        <dt>Status</dt>
-                        <dd>
-                            <span th:class="${view.nextNode.online} ? 'status-online' : 'status-offline'"
-                                  th:text="${view.nextNode.status}">online</span>
-                        </dd>
-                    </dl>
-                </article>
-            </div>
+            <p th:if="${view.nodes.isEmpty()}" class="empty">No nodes are currently registered in the Naming Server.</p>
         </section>
 
         <section id="files" class="panel">
@@ -433,13 +261,9 @@
                 </tr>
                 </tbody>
             </table>
-            <p th:if="${view.globalKnownFiles.isEmpty()}" class="empty">
-                No files are known yet. Upload a file to a node's local_files directory.
-            </p>
+            <p th:if="${view.globalKnownFiles.isEmpty()}" class="empty">No files are known yet. Upload a file to a node's local_files directory.</p>
         </section>
     </main>
 </div>
-
-<script th:src="@{/js/topology-graph.js}"></script>
 </body>
 </html>

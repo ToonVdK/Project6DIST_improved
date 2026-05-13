@@ -77,8 +77,60 @@ public class ShutdownService {
             System.err.println("Error during shutdown topology update: " + e.getMessage());
         }
 
+        startGracefulOwnershipHandoff(nextID);
         // 3. Remove the node from the Naming server's Map
         removeFromNamingServer();
+    }
+
+    private void startGracefulOwnershipHandoff(int starterNodeId) {
+        try {
+            if (starterNodeId == nodeState.getCurrentID()) {
+                System.out.println("[SHUTDOWN] No ownership handoff needed: only node in network.");
+                return;
+            }
+
+            String starterIp = restTemplate.getForObject(
+                    NAMING_SERVER_URL + "ip/" + starterNodeId,
+                    String.class
+            );
+
+            if (starterIp == null || starterIp.trim().isEmpty()) {
+                System.out.println("[SHUTDOWN] Cannot start ownership handoff: starter node IP unknown.");
+                return;
+            }
+
+            /*
+             * Push this node's last known file metadata to the starter node.
+             * This helps the surviving nodes know which files were owned by the leaving node.
+             */
+            restTemplate.postForObject(
+                    "http://" + starterIp + ":" + nodePort + "/api/node/files/list/merge",
+                    nodeState.getFileListSnapshot(),
+                    String.class
+            );
+
+            FailureAgent agent = new FailureAgent(
+                    nodeState.getCurrentID(),
+                    starterNodeId
+            );
+
+            System.out.println(
+                    "[SHUTDOWN] Starting graceful ownership handoff for leaving node " +
+                            nodeState.getCurrentID() +
+                            " via starter node " + starterNodeId
+            );
+
+            restTemplate.postForObject(
+                    "http://" + starterIp + ":" + nodePort + "/api/node/agents/failure",
+                    agent,
+                    String.class
+            );
+
+            System.out.println("[SHUTDOWN] Graceful ownership handoff completed/started.");
+
+        } catch (Exception e) {
+            System.err.println("[SHUTDOWN] Failed to start graceful ownership handoff: " + e.getMessage());
+        }
     }
 
     private void removeFromNamingServer() {

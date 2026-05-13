@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.Serializable;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 public class FailureAgent implements Runnable, Serializable {
@@ -88,37 +89,55 @@ public class FailureAgent implements Runnable, Serializable {
         String filename = fileInfo.getFilename();
 
         try {
-            String newOwnerIp = replicationService.getReplicationOwnerIp(filename);
+            Map.Entry<Integer, String> newOwner =
+                    replicationService.getReplicationOwnerExcludingNode(filename, failedNodeId);
 
-            if (newOwnerIp == null || newOwnerIp.trim().isEmpty()) {
-                System.out.println("Failure Agent could not find new owner for file: " + filename);
+            if (newOwner == null) {
+                System.out.println("[FAILURE AGENT] No new owner found for file: " + filename);
                 return;
             }
 
-            Integer newOwnerId = replicationService.getNodeIdByIp(newOwnerIp);
-
-            if (newOwnerId == null) {
-                System.out.println("Failure Agent could not resolve new owner ID for file: " + filename);
-                return;
-            }
+            int newOwnerId = newOwner.getKey();
+            String newOwnerIp = newOwner.getValue();
 
             boolean currentNodeHasCopy = replicationService.hasLocalOrReplicatedCopy(filename);
+            boolean currentNodeIsNewOwner = newOwnerIp.equals(nodeState.getIpAddress());
 
-            if (currentNodeHasCopy) {
-                if (newOwnerIp.equals(nodeState.getIpAddress())) {
+            if (currentNodeIsNewOwner) {
+                /*
+                 * This node becomes the new official owner.
+                 * If it only had the file as a replica, promote it to local_files.
+                 */
+                boolean promoted = replicationService.promoteReplicaToLocal(filename);
+
+                if (promoted) {
                     System.out.println(
-                            "File '" + filename + "' is already on its new owner node " + newOwnerId
+                            "[FAILURE AGENT] Node " + nodeState.getCurrentID() +
+                                    " is now owner of '" + filename +
+                                    "' and has it in local_files."
                     );
-
-                } else if (replicationService.remoteNodeHasFile(newOwnerIp, filename)) {
+                } else {
                     System.out.println(
-                            "New owner already has file '" + filename +
-                                    "'. Only updating file list."
+                            "[FAILURE AGENT] Node " + nodeState.getCurrentID() +
+                                    " is new owner of '" + filename +
+                                    "', but no replica was available to promote."
+                    );
+                }
+
+            } else if (currentNodeHasCopy) {
+                /*
+                 * This node has a copy, but another node is the new owner.
+                 * If the new owner does not have the file yet, transfer it.
+                 */
+                if (replicationService.remoteNodeHasFile(newOwnerIp, filename)) {
+                    System.out.println(
+                            "[FAILURE AGENT] New owner already has '" +
+                                    filename + "'. Only updating metadata."
                     );
 
                 } else {
                     System.out.println(
-                            "Transferring file '" + filename +
+                            "[FAILURE AGENT] Transferring '" + filename +
                                     "' from node " + nodeState.getCurrentID() +
                                     " to new owner " + newOwnerId
                     );
@@ -128,9 +147,9 @@ public class FailureAgent implements Runnable, Serializable {
 
             } else {
                 System.out.println(
-                        "Node " + nodeState.getCurrentID() +
-                                " has no copy of '" + filename +
-                                "'. Only updating known ownership."
+                        "[FAILURE AGENT] Node " + nodeState.getCurrentID() +
+                                " has no physical copy of '" + filename +
+                                "'. Only updating metadata."
                 );
             }
 
@@ -144,9 +163,15 @@ public class FailureAgent implements Runnable, Serializable {
                 nodeState.addOrUpdateFile(updated);
             }
 
+            System.out.println(
+                    "[FAILURE AGENT] Ownership of '" + filename +
+                            "' changed from failed/leaving node " + failedNodeId +
+                            " to node " + newOwnerId
+            );
+
         } catch (Exception e) {
             System.err.println(
-                    "Failure Agent error while handling file '" +
+                    "[FAILURE AGENT] Error while handling file '" +
                             filename + "': " + e.getMessage()
             );
         }

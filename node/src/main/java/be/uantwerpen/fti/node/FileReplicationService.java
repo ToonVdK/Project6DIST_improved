@@ -1,4 +1,5 @@
 package be.uantwerpen.fti.node;
+import be.uantwerpen.fti.common.HashUtils;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -7,6 +8,10 @@ import org.springframework.web.client.RestTemplate;
 import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.util.AbstractMap;
+
 
 @Service
 public class FileReplicationService {
@@ -314,6 +319,107 @@ public class FileReplicationService {
             return exists != null && exists;
 
         } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public Map.Entry<Integer, String> getReplicationOwnerExcludingNode(String filename, int excludedNodeId) {
+        Map<Integer, String> topology = getTopology();
+
+        topology.remove(excludedNodeId);
+
+        if (topology.isEmpty()) {
+            System.out.println("[OWNERSHIP] No surviving nodes available for file: " + filename);
+            return null;
+        }
+
+        int fileHash = HashUtils.calculateHash(filename);
+
+        Integer selectedNodeId = null;
+
+        /*
+         * Same rule as the naming server:
+         * choose the node with the largest hash smaller than the file hash.
+         */
+        for (Integer nodeId : topology.keySet()) {
+            if (nodeId < fileHash) {
+                if (selectedNodeId == null || nodeId > selectedNodeId) {
+                    selectedNodeId = nodeId;
+                }
+            }
+        }
+
+        /*
+         * Wrap-around case:
+         * if no node hash is smaller than the file hash,
+         * choose the largest surviving node hash.
+         */
+        if (selectedNodeId == null) {
+            for (Integer nodeId : topology.keySet()) {
+                if (selectedNodeId == null || nodeId > selectedNodeId) {
+                    selectedNodeId = nodeId;
+                }
+            }
+        }
+
+        String selectedIp = topology.get(selectedNodeId);
+
+        System.out.println(
+                "[OWNERSHIP] New owner for '" + filename +
+                        "' excluding node " + excludedNodeId +
+                        " is node " + selectedNodeId +
+                        " at " + selectedIp
+        );
+
+        return new AbstractMap.SimpleEntry<>(selectedNodeId, selectedIp);
+    }
+
+    public boolean promoteReplicaToLocal(String filename) {
+        if (filename == null || filename.trim().isEmpty()) {
+            return false;
+        }
+
+        File localFolder = new File(LOCAL_FOLDER);
+        File replicatedFolder = new File(REPLICATED_FOLDER);
+
+        localFolder.mkdirs();
+        replicatedFolder.mkdirs();
+
+        File localFile = new File(LOCAL_FOLDER + filename);
+        File replicatedFile = new File(REPLICATED_FOLDER + filename);
+
+        if (localFile.exists() && localFile.isFile()) {
+            System.out.println("[OWNERSHIP] File already exists in local_files: " + filename);
+            return true;
+        }
+
+        if (!replicatedFile.exists() || !replicatedFile.isFile()) {
+            System.out.println("[OWNERSHIP] Cannot promote replica. File not found in replicated_files: " + filename);
+            return false;
+        }
+
+        try {
+            Files.move(
+                    replicatedFile.toPath(),
+                    localFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+
+            System.out.println(
+                    "[OWNERSHIP] Promoted '" + filename +
+                            "' from replicated_files to local_files."
+            );
+
+            nodeState.addOrUpdateOwnedFile(filename);
+
+            return true;
+
+        } catch (Exception e) {
+            System.err.println(
+                    "[OWNERSHIP] Failed to promote replica '" +
+                            filename + "': " + e.getMessage()
+            );
+
             return false;
         }
     }

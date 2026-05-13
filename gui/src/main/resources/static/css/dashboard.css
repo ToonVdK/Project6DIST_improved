@@ -156,7 +156,7 @@ tr:nth-child(odd) td {
 }
 
 .node-card.selected {
-    border-color: var(--accent);
+    border-color: var(--main-color);
 }
 
 .node-card h3 {
@@ -182,6 +182,7 @@ dd {
     display: flex;
     gap: 10px;
     margin-top: 18px;
+    flex-wrap: wrap;
 }
 
 .inline-form {
@@ -193,7 +194,8 @@ dd {
 
 .inline-form label {
     width: 100%;
-    color: var(--muted);
+    color: var(--main-color);
+    font-weight: 700;
 }
 
 input {
@@ -213,7 +215,7 @@ input {
 }
 
 .primary {
-    background: var(--accent);
+    background: var(--main-color);
 }
 
 .secondary {
@@ -230,9 +232,11 @@ input {
 }
 
 .badge {
-    background: rgba(255, 255, 255, 0.12);
+    background: rgba(177, 0, 151, 0.12);
+    color: var(--main-color);
     padding: 8px 12px;
     border-radius: 999px;
+    font-weight: 700;
 }
 
 .status-online::after {
@@ -257,6 +261,7 @@ input {
     padding: 14px 16px;
     margin-bottom: 18px;
     font-weight: 700;
+    color: #ffffff;
 }
 
 .success {
@@ -276,7 +281,6 @@ input {
     padding-left: 20px;
 }
 
-/* Extra GUI controls added without changing your colors/layout. */
 .server-actions {
     margin-top: 16px;
     display: flex;
@@ -298,6 +302,93 @@ input {
     margin-bottom: 8px;
 }
 
+.topology-panel {
+    overflow: hidden;
+}
+
+.topology-wrapper {
+    margin-top: 16px;
+}
+
+.topology-graph {
+    position: relative;
+    width: 100%;
+    min-height: 430px;
+    background: linear-gradient(135deg, var(--panel-light), var(--panel-alt));
+    border: 2px solid rgba(177, 0, 151, 0.18);
+    overflow: hidden;
+}
+
+.topology-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+.topology-nodes-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+}
+
+.topology-node {
+    position: absolute;
+    width: 150px;
+    min-height: 82px;
+    transform: translate(-50%, -50%);
+    background: var(--main-color);
+    color: var(--accent);
+    padding: 12px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+    text-align: center;
+    border: 3px solid #ffffff;
+}
+
+.topology-node.offline {
+    background: #777777;
+}
+
+.topology-node-name {
+    display: block;
+    font-weight: 700;
+    margin-bottom: 6px;
+    word-break: break-word;
+}
+
+.topology-node-id,
+.topology-node-next {
+    display: block;
+    font-size: 12px;
+    opacity: 0.95;
+}
+
+.topology-edge {
+    stroke: var(--text);
+    stroke-width: 3;
+    fill: none;
+    opacity: 0.85;
+}
+
+.topology-edge-label {
+    fill: var(--text);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.topology-empty {
+    padding: 20px 0;
+}
+
+.topology-data {
+    display: none;
+}
+
+.topology-hint {
+    margin-bottom: 0;
+}
+
 @media (max-width: 900px) {
     .layout {
         display: block;
@@ -311,5 +402,9 @@ input {
 
     .two-columns {
         grid-template-columns: 1fr;
+    }
+
+    .topology-graph {
+        min-height: 520px;
     }
 }

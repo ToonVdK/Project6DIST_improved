@@ -180,18 +180,10 @@
                             <ul class="file-action-list" th:if="${!view.selectedNode.replicatedFiles.isEmpty()}">
                                 <li th:each="file : ${view.selectedNode.replicatedFiles}">
                                     <span th:text="${file}">file.txt</span>
-                                    <span class="file-actions">
-                                        <form method="post" action="/files/delete">
-                                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                                            <input type="hidden" name="fileName" th:value="${file}">
-                                            <input type="hidden" name="location" value="replicated">
-                                            <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
-                                            <button type="submit" class="icon-button delete" title="Delete file">×</button>
-                                        </form>
-                                    </span>
                                 </li>
                             </ul>
                             <p th:if="${view.selectedNode.replicatedFiles.isEmpty()}" class="empty">No replicated files.</p>
+                            <p class="hint">Replicas are managed by System Y and cannot be deleted manually.</p>
                         </div>
                     </div>
                 </article>

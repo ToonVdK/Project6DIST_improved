@@ -100,6 +100,13 @@ public class NodeController {
         return ResponseEntity.notFound().build();
     }
 
+    @DeleteMapping("/files/{filename}/metadata")
+    public ResponseEntity<String> deleteFileMetadata(@PathVariable String filename) {
+        nodeState.removeFile(filename);
+        System.out.println("Removed file metadata from synchronized list: " + filename);
+        return ResponseEntity.ok("Metadata removed");
+    }
+
     @PostMapping("/files/{filename}/offline")
     public ResponseEntity<String> localFileWentOffline(@PathVariable String filename) {
         System.out.println("Received warning: The local source of '" + filename + "' has shut down.");

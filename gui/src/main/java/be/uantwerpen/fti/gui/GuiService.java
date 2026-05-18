@@ -10,6 +10,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -197,16 +198,51 @@ public class GuiService {
 
     public void deleteFileOnNode(String nodeName, String fileName, String location) {
         String filename = sanitizeFileName(fileName);
-        String folder = folderForLocation(location);
 
+        if (!"local".equalsIgnoreCase(location)) {
+            throw new IllegalArgumentException("Replicated files are managed by System Y and cannot be deleted manually.");
+        }
+
+        /*
+         * Only local/original files may be deleted from the GUI.
+         * After deleting the physical local file, we explicitly remove the file metadata
+         * and any remaining replica copies from every reachable node. This prevents
+         * stale entries from staying visible in the global synchronized file list.
+         */
         runCommand(List.of(
                 dockerCommand,
                 "exec",
                 containerNameForNode(nodeName),
                 "sh",
                 "-c",
-                "rm -f " + folder + "/" + filename
+                "rm -f /local_files/" + filename
         ));
+
+        removeFileEverywhere(filename);
+    }
+
+    private void removeFileEverywhere(String filename) {
+        Map<Integer, String> topology = fetchTopology();
+
+        if (topology == null || topology.isEmpty()) {
+            return;
+        }
+
+        String encodedFilename = encodePathSegment(filename);
+
+        for (String nodeIp : topology.values()) {
+            try {
+                restTemplate.delete(nodeUrl(nodeIp) + "/files/" + encodedFilename + "/metadata");
+            } catch (Exception ignored) {
+                // Keep cleaning the other nodes even if one node is temporarily unreachable.
+            }
+
+            try {
+                restTemplate.delete(nodeUrl(nodeIp) + "/files/" + encodedFilename);
+            } catch (Exception ignored) {
+                // This endpoint returns 404 when the node does not have a replica. That is fine.
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -417,6 +453,10 @@ public class GuiService {
         }
 
         return safe;
+    }
+
+    private String encodePathSegment(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     private String folderForLocation(String location) {

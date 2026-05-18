@@ -59,7 +59,6 @@
                     <form method="post" action="/nameserver/start">
                         <button type="submit" class="button secondary">Start nameserver</button>
                     </form>
-
                     <form method="post" action="/nameserver/stop">
                         <button type="submit" class="button danger">Stop nameserver</button>
                     </form>
@@ -69,10 +68,8 @@
             <div class="panel">
                 <h2>Add node</h2>
                 <form class="inline-form" method="post" action="/nodes/add">
-                    <div class="form-group">
-                        <label for="nodeName">Node name</label>
-                        <input id="nodeName" name="nodeName" placeholder="Example: Gamma" required>
-                    </div>
+                    <label for="nodeName">Node name</label>
+                    <input id="nodeName" name="nodeName" placeholder="Example: Gamma" required>
                     <button type="submit" class="button primary">Add node</button>
                 </form>
                 <p class="hint">The GUI starts a new Docker container using the configured node image and network.</p>
@@ -84,151 +81,130 @@
                 <h2>Network topology</h2>
                 <span class="badge" th:text="${view.nodeCount + ' active node(s)'}">0 active nodes</span>
             </div>
+            <p class="topology-helper" th:if="${!view.nodes.isEmpty()}">
+                Click a node in the topology to select it. The selected node is enlarged, and its neighbours are highlighted.
+            </p>
 
-            <div th:if="${!view.nodes.isEmpty()}">
-                <div class="topology-helper">
-                    Click a node in the topology to select it. The selected node is enlarged, and its neighbours are highlighted.
-                </div>
+            <div class="topology-data" th:if="${!view.nodes.isEmpty()}">
+                <span class="topology-node-data"
+                      th:each="node : ${view.nodes}"
+                      th:data-id="${node.id}"
+                      th:data-name="${node.name}"
+                      th:data-ip="${node.ip}"
+                      th:data-status="${node.status}"
+                      th:data-online="${node.online}"
+                      th:data-previous-id="${node.previousID}"
+                      th:data-next-id="${node.nextID}"
+                      th:data-selected="${view.selectedNode != null and node.id == view.selectedNode.id}"></span>
+            </div>
 
-                <div class="topology-data" aria-hidden="true">
-                    <div class="topology-node-data"
-                         th:each="node : ${view.nodes}"
-                         th:attr="data-id=${node.id},
-                                  data-name=${node.name},
-                                  data-ip=${node.ip},
-                                  data-status=${node.status},
-                                  data-online=${node.online},
-                                  data-previous-id=${node.previousID},
-                                  data-next-id=${node.nextID},
-                                  data-selected=${view.selectedNode != null and node.id == view.selectedNode.id}"></div>
-                </div>
+            <div th:if="${!view.nodes.isEmpty()}"
+                 id="interactiveTopology"
+                 class="topology-visual"
+                 th:data-selected-id="${view.selectedNode != null ? view.selectedNode.id : ''}">
+                <svg id="topologySvg" class="topology-svg" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet"></svg>
+                <div id="topologyNodesLayer" class="topology-nodes-layer"></div>
+            </div>
 
-                <div id="interactiveTopology" class="topology-visual"
-                     th:attr="data-selected-id=${view.selectedNode != null ? view.selectedNode.id : ''}">
-                    <svg id="topologySvg" class="topology-svg" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet"></svg>
-                    <div id="topologyNodesLayer" class="topology-nodes-layer"></div>
-                </div>
+            <div th:if="${view.selectedNode != null}" class="topology-focus-row">
+                <article class="focus-card neighbour-card" th:if="${view.previousNode != null}">
+                    <h3>Previous neighbour</h3>
+                    <p class="focus-node-name" th:text="${view.previousNode.name}">node</p>
+                    <table>
+                        <tr><th>Node ID</th><td th:text="${view.previousNode.id}">0</td></tr>
+                        <tr><th>IP</th><td th:text="${view.previousNode.ip}">0.0.0.0</td></tr>
+                        <tr><th>Status</th><td><span th:class="${view.previousNode.online} ? 'status-online' : 'status-offline'" th:text="${view.previousNode.status}">online</span></td></tr>
+                    </table>
+                </article>
 
-                <div th:if="${view.selectedNode == null}" class="empty topology-empty-selection">
-                    Please select a node to see its details.
-                </div>
+                <article class="focus-card selected-focus-card">
+                    <h3>Selected node</h3>
+                    <p class="focus-node-name" th:text="${view.selectedNode.name}">node</p>
+                    <table class="selected-info-table">
+                        <tr><th>Node ID</th><td th:text="${view.selectedNode.id}">0</td></tr>
+                        <tr><th>IP</th><td th:text="${view.selectedNode.ip}">0.0.0.0</td></tr>
+                        <tr><th>Status</th><td><span th:class="${view.selectedNode.online} ? 'status-online' : 'status-offline'" th:text="${view.selectedNode.status}">online</span></td></tr>
+                        <tr><th>Previous ID</th><td th:text="${view.selectedNode.previousID}">-</td></tr>
+                        <tr><th>Next ID</th><td th:text="${view.selectedNode.nextID}">-</td></tr>
+                    </table>
 
-                <div th:if="${view.selectedNode != null}" class="topology-focus-row"
-                     th:classappend="${view.nodeCount == 1} ? ' single-node-focus' : ''">
-                    <article th:each="node : ${view.nodes}"
-                             th:if="${node.id == view.selectedNode.previousID and node.id != view.selectedNode.id}"
-                             class="focus-card neighbour-card">
-                        <h3>Previous neighbour</h3>
-                        <p class="focus-node-name" th:text="${node.name}">node</p>
-                        <table>
-                            <tr><th>Node ID</th><td th:text="${node.id}">0</td></tr>
-                            <tr><th>IP</th><td th:text="${node.ip}">0.0.0.0</td></tr>
-                            <tr>
-                                <th>Status</th>
-                                <td><span th:class="${node.online} ? 'status-online' : 'status-offline'" th:text="${node.status}">online</span></td>
-                            </tr>
-                        </table>
-                    </article>
+                    <div class="card-actions centered-actions">
+                        <form method="post" action="/nodes/remove">
+                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
+                            <button class="button warning" type="submit">Shutdown</button>
+                        </form>
+                        <form method="post" action="/nodes/kill">
+                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
+                            <button class="button danger" type="submit">Failure</button>
+                        </form>
+                    </div>
 
-                    <article class="focus-card selected-focus-card">
-                        <h3>Selected node</h3>
-                        <p class="focus-node-name" th:text="${view.selectedNode.name}">node</p>
+                    <div class="upload-box">
+                        <h3>Upload local file to selected node</h3>
+                        <form class="upload-form" method="post" action="/files/upload" enctype="multipart/form-data">
+                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
+                            <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
 
-                        <table class="selected-info-table">
-                            <tr><th>Node ID</th><td th:text="${view.selectedNode.id}">0</td></tr>
-                            <tr><th>IP</th><td th:text="${view.selectedNode.ip}">0.0.0.0</td></tr>
-                            <tr>
-                                <th>Status</th>
-                                <td><span th:class="${view.selectedNode.online} ? 'status-online' : 'status-offline'" th:text="${view.selectedNode.status}">online</span></td>
-                            </tr>
-                            <tr><th>Previous ID</th><td th:text="${view.selectedNode.previousID}">-</td></tr>
-                            <tr><th>Next ID</th><td th:text="${view.selectedNode.nextID}">-</td></tr>
-                        </table>
-
-                        <div class="card-actions centered-actions">
-                            <form method="post" action="/nodes/remove">
-                                <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                                <button class="button danger" type="submit">Shutdown</button>
-                            </form>
-
-                            <form method="post" action="/nodes/kill">
-                                <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                                <button class="button warning" type="submit">Failure</button>
-                            </form>
-                        </div>
-
-                        <div class="selected-file-details">
-                            <div class="upload-box">
-                                <h3>Upload local file to selected node</h3>
-                                <form class="upload-form" method="post" action="/files/upload" enctype="multipart/form-data">
-                                    <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                                    <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
-                                    <div class="form-group upload-file-input">
-                                        <label for="fileUpload">Choose file</label>
-                                        <input id="fileUpload" type="file" name="file" required>
-                                    </div>
-                                    <button type="submit" class="button secondary">Upload file</button>
-                                </form>
-                                <p class="hint">The uploaded file is copied to the selected node's /local_files directory and then replicated automatically.</p>
+                            <div class="upload-file-input">
+                                <label for="uploadFile">Choose file</label>
+                                <input id="uploadFile" type="file" name="file" required>
                             </div>
 
-                            <div class="grid two-columns file-groups">
-                                <div>
-                                    <h3>Local files</h3>
-                                    <ul class="file-action-list" th:if="${!view.selectedNode.localFiles.isEmpty()}">
-                                        <li th:each="file : ${view.selectedNode.localFiles}">
-                                            <span th:text="${file}">file.txt</span>
-                                            <div class="file-actions">
-                                                <form method="post" action="/files/delete">
-                                                    <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                                                    <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
-                                                    <input type="hidden" name="location" value="local">
-                                                    <input type="hidden" name="fileName" th:value="${file}">
-                                                    <button class="icon-button delete" type="submit" title="Delete file">×</button>
-                                                </form>
-                                            </div>
-                                        </li>
-                                    </ul>
-                                    <p th:if="${view.selectedNode.localFiles.isEmpty()}" class="empty">No local files.</p>
-                                </div>
+                            <button type="submit" class="button secondary">Upload file</button>
+                        </form>
+                        <p class="hint">The uploaded file is copied to the selected node's /local_files directory and then replicated automatically.</p>
+                    </div>
 
-                                <div>
-                                    <h3>Replicated files</h3>
-                                    <ul class="file-action-list" th:if="${!view.selectedNode.replicatedFiles.isEmpty()}">
-                                        <li th:each="file : ${view.selectedNode.replicatedFiles}">
-                                            <span th:text="${file}">file.txt</span>
-                                            <div class="file-actions">
-                                                <form method="post" action="/files/delete">
-                                                    <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
-                                                    <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
-                                                    <input type="hidden" name="location" value="replicated">
-                                                    <input type="hidden" name="fileName" th:value="${file}">
-                                                    <button class="icon-button delete" type="submit" title="Delete file">×</button>
-                                                </form>
-                                            </div>
-                                        </li>
-                                    </ul>
-                                    <p th:if="${view.selectedNode.replicatedFiles.isEmpty()}" class="empty">No replicated files.</p>
-                                </div>
-                            </div>
+                    <div class="grid two-columns file-groups selected-file-details">
+                        <div>
+                            <h3>Local files</h3>
+                            <ul class="file-action-list" th:if="${!view.selectedNode.localFiles.isEmpty()}">
+                                <li th:each="file : ${view.selectedNode.localFiles}">
+                                    <span th:text="${file}">file.txt</span>
+                                    <span class="file-actions">
+                                        <form method="post" action="/files/delete">
+                                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
+                                            <input type="hidden" name="fileName" th:value="${file}">
+                                            <input type="hidden" name="location" value="local">
+                                            <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
+                                            <button type="submit" class="icon-button delete" title="Delete file">×</button>
+                                        </form>
+                                    </span>
+                                </li>
+                            </ul>
+                            <p th:if="${view.selectedNode.localFiles.isEmpty()}" class="empty">No local files.</p>
                         </div>
-                    </article>
 
-                    <article th:each="node : ${view.nodes}"
-                             th:if="${node.id == view.selectedNode.nextID and node.id != view.selectedNode.id}"
-                             class="focus-card neighbour-card">
-                        <h3>Next neighbour</h3>
-                        <p class="focus-node-name" th:text="${node.name}">node</p>
-                        <table>
-                            <tr><th>Node ID</th><td th:text="${node.id}">0</td></tr>
-                            <tr><th>IP</th><td th:text="${node.ip}">0.0.0.0</td></tr>
-                            <tr>
-                                <th>Status</th>
-                                <td><span th:class="${node.online} ? 'status-online' : 'status-offline'" th:text="${node.status}">online</span></td>
-                            </tr>
-                        </table>
-                    </article>
-                </div>
+                        <div>
+                            <h3>Replicated files</h3>
+                            <ul class="file-action-list" th:if="${!view.selectedNode.replicatedFiles.isEmpty()}">
+                                <li th:each="file : ${view.selectedNode.replicatedFiles}">
+                                    <span th:text="${file}">file.txt</span>
+                                    <span class="file-actions">
+                                        <form method="post" action="/files/delete">
+                                            <input type="hidden" name="nodeName" th:value="${view.selectedNode.name}">
+                                            <input type="hidden" name="fileName" th:value="${file}">
+                                            <input type="hidden" name="location" value="replicated">
+                                            <input type="hidden" name="selectedId" th:value="${view.selectedNode.id}">
+                                            <button type="submit" class="icon-button delete" title="Delete file">×</button>
+                                        </form>
+                                    </span>
+                                </li>
+                            </ul>
+                            <p th:if="${view.selectedNode.replicatedFiles.isEmpty()}" class="empty">No replicated files.</p>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="focus-card neighbour-card" th:if="${view.nextNode != null}">
+                    <h3>Next neighbour</h3>
+                    <p class="focus-node-name" th:text="${view.nextNode.name}">node</p>
+                    <table>
+                        <tr><th>Node ID</th><td th:text="${view.nextNode.id}">0</td></tr>
+                        <tr><th>IP</th><td th:text="${view.nextNode.ip}">0.0.0.0</td></tr>
+                        <tr><th>Status</th><td><span th:class="${view.nextNode.online} ? 'status-online' : 'status-offline'" th:text="${view.nextNode.status}">online</span></td></tr>
+                    </table>
+                </article>
             </div>
 
             <p th:if="${view.nodes.isEmpty()}" class="empty">No nodes are currently registered in the Naming Server.</p>
@@ -240,24 +216,17 @@
                 <thead>
                 <tr>
                     <th>Filename</th>
+                    <th>Owner name</th>
                     <th>Owner ID</th>
                     <th>Owner IP</th>
-                    <th>Last known location</th>
-                    <th>Lock status</th>
-                    <th>Known by node</th>
                 </tr>
                 </thead>
                 <tbody>
                 <tr th:each="file : ${view.globalKnownFiles}">
                     <td th:text="${file.filename}">file.txt</td>
+                    <td th:text="${file.ownerName}">owner</td>
                     <td th:text="${file.ownerId}">0</td>
                     <td th:text="${file.ownerIp}">-</td>
-                    <td th:text="${file.lastKnownLocationIp}">-</td>
-                    <td>
-                        <span th:class="${file.locked} ? 'locked' : 'unlocked'"
-                              th:text="${file.locked} ? 'locked' : 'available'">available</span>
-                    </td>
-                    <td th:text="${file.discoveredOn}">node</td>
                 </tr>
                 </tbody>
             </table>
